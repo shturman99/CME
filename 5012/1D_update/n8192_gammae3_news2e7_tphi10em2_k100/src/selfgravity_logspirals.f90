@@ -1,0 +1,1 @@
+/home/mgurgeni/pencil-code/src/selfgravity_logspirals.f90

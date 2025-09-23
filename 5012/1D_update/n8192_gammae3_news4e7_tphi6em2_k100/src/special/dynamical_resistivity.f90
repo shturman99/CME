@@ -1,0 +1,1 @@
+/home/mgurgeni/pencil-code/src/special/dynamical_resistivity.f90

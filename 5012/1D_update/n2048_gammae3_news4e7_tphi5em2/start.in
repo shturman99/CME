@@ -1,0 +1,23 @@
+!  -*-f90-*-  (for Emacs)    vim:set filetype=fortran:  (for vim)
+!
+! Initialisation parameters for forced helical MHD turbulence
+!
+&init_pars
+  cvsid="$Id: start.in,v 1.1 2025/08/13 04:44:17 murman Exp $"
+  lwrite_aux=T, lread_aux=T, lwrite_ic=F, tstart=0
+  ltolerate_namelist_errors=T wav1=1000
+/
+&eos_init_pars
+  gamma=1., cs0=.57735027
+/
+&hydro_init_pars
+/
+&density_init_pars
+  lrelativistic_eos=T
+/
+&magnetic_init_pars
+  initaa='gaussian-noise', amplaa=1e-12
+/
+&special_init_pars
+  initspecial='const', mu5_const=0
+/

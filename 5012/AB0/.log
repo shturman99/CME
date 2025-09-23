@@ -1,0 +1,9 @@
+-rw-rw-r-- 1 mgurgeni mgurgeni 375 Aug  6 14:29 print.in
+-rw-rw-r-- 1 mgurgeni mgurgeni 938 Aug  7 10:00 run.in
+-rw-rw-r-- 1 mgurgeni mgurgeni 322 Aug  7 00:02 src/cparam.local
+-rw-rw-r-- 1 mgurgeni mgurgeni 447 Aug  6 14:29 src/Makefile.local
+-rw-rw-r-- 1 mgurgeni mgurgeni 447 Aug  7 00:04 src/revision.txt
+-rw-rw-r-- 1 mgurgeni mgurgeni 543 Aug  7 00:04 start.in
+-rw-rw-r-- 1 mgurgeni mgurgeni   3 Aug  6 14:29 video.in
+-rw-rw-r-- 1 mgurgeni mgurgeni  33 Aug  6 14:29 xyaver.in
+-rw-rw-r-- 1 mgurgeni mgurgeni  30 Aug  6 14:29 zaver.in

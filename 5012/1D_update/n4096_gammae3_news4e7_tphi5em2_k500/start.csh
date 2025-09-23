@@ -1,0 +1,1 @@
+/home/mgurgeni/pencil-code/bin/start.csh
