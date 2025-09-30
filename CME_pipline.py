@@ -25,8 +25,7 @@ class Config:
     # Paths
     HOME: str = os.path.expanduser("~")
     ROOT: str = os.path.join(os.path.expanduser("~"),
-                             "programming", "test", "mhd_project",
-                             "tmp", "murman", "CME", "5012", "1D_update")
+                             "programming",  "murman", "CME", "5012", "1D_update")
     FIG_DIR: str = os.path.join(ROOT, "figs_cmi")
     VID_DIR: str = os.path.join(ROOT, "Video")
     # Plotting & behavior
@@ -44,6 +43,15 @@ class Config:
     make_hel_alltimes: bool = True
     make_helicity_fraction: bool = True
     make_final_spectra: bool = True
+
+
+    # animations
+    make_anim_mag: bool = True
+    make_anim_hel: bool = True
+    anim_fps: int = 20
+    anim_stride: int = 1      # use every Nth time slice
+    anim_y: str = "kE"        # "E" for Em(k), "kE" for k*Em(k), "kH" for k*|H(k)|
+
 
     # Safety
     eps: float = 1e-30
@@ -282,6 +290,48 @@ def add_slope_guides(ax, k, Pk_ref, exponents=(3,),
         # place label near the segment end
         ax.text(kseg[-1], yseg[-1], rf"$k^{n}$", fontsize=9,
                 ha="left", va="bottom", color=color)
+
+def kcpi_series(ts, k_scale: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Return (t, k_cpi(t)) with scaling; k_cpi = |mu5|(t)."""
+    if ts is None or not hasattr(ts, "mu5m"):
+        return np.array([]), np.array([])
+    t = np.asarray(ts.t)
+    mu = np.asarray(ts.mu5m)
+    kc = np.abs(mu) * k_scale
+    return t, kc
+
+def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Return (t, k_peak(t)) where peak is argmax over k of:
+      ymode="E"  -> |E(k)|
+      ymode="kE" -> k*|E(k)|
+      ymode="kH" -> k*|H(k)|
+    """
+    if pw is None or not hasattr(pw, "t"):
+        return np.array([]), np.array([])
+
+    t = np.asarray(pw.t)
+    k = np.asarray(pw.krms) * k_scale
+    use_hel = (ymode == "kH") and hasattr(pw, "hel_mag")
+
+    arr = np.asarray(pw.hel_mag if use_hel else pw.mag)  # (nt, nk)
+    ksafe = np.where(k <= 0, np.nan, k)                  # avoid non-positive k
+
+    peaks = np.full(arr.shape[0], np.nan)
+    for i in range(arr.shape[0]):
+        spec = np.abs(arr[i])
+        if ymode == "E":
+            y = spec
+        else:
+            y = ksafe * spec  # "kE" or "kH"
+        if np.all(~np.isfinite(y)):
+            continue
+        idx = np.nanargmax(y)
+        peaks[i] = k[idx] if np.isfinite(y[idx]) else np.nan
+    return t, peaks
+        
+
+
 # -----------------------------
 # 4) Plotting
 # -----------------------------
@@ -508,6 +558,151 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
 # -----------------------------
 # 5) Animations 
 # -----------------------------
+from matplotlib.animation import FuncAnimation, FFMpegWriter, PillowWriter
+
+def animate_spectrum(
+    pw, ts, p2, cfg: Config, run: str, field: str, k_scale: float, out_basename: str
+) -> None:
+    """
+    Make an animation of P(k,t) with fixed and moving markers.
+    Saves MP4 to VID_DIR; falls back to GIF if ffmpeg isn't available.
+    """
+    if pw is None or not hasattr(pw, field):
+        print(f"[{run}] no field '{field}' in power.dat for animation")
+        return
+
+    # Data
+    k = np.asarray(pw.krms) * k_scale
+    arr = np.asarray(getattr(pw, field))  # (nt, nk)
+    t   = np.asarray(pw.t)
+
+    # Choose Y
+    ymode = cfg.anim_y
+    if field == "hel_mag" and ymode == "kE":
+        ymode = "kH"  # sensible default for helicity
+
+    def spec_y(i):
+        s = np.abs(arr[i])
+        if ymode == "E":
+            return s
+        elif ymode in ("kE", "kH"):
+            return k * s
+        else:
+            return s
+
+    # Time sub-sampling
+    it = np.arange(0, arr.shape[0], max(1, cfg.anim_stride))
+    if it.size == 0:
+        print(f"[{run}] nothing to animate for {field}")
+        return
+
+    # Fixed markers (theory)
+    k_fixed = compute_k_markers(p2) if p2 is not None else []
+
+    # Moving markers
+    tt_kc, kc = kcpi_series(ts, k_scale)
+    tt_kp, kp = kpeak_series(pw, k_scale, ymode=ymode)
+
+    # Build figure/axes once
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    line, = ax.loglog([], [], lw=1.5, color="C0")
+    title = ax.set_title(f"{run}: {field} spectrum")
+
+    # add fixed vlines (static artists)
+    fixed_artists = []
+    if k_fixed:
+        for x, lab in k_fixed:
+            v = ax.axvline(x, color="0.65", ls="--", lw=0.8)
+            txt = ax.text(x, 0.9, lab, rotation=90, va="top",
+                          transform=ax.get_xaxis_transform(), fontsize=8)
+            fixed_artists += [v, txt]
+
+    # placeholders for moving markers
+    v_kc = ax.axvline(np.nan, color="C3", ls="-.", lw=1.0, alpha=0.9)
+    v_kp = ax.axvline(np.nan, color="C2", ls=":", lw=1.2, alpha=0.9)
+
+    txt_kc = ax.text(0.0, 0.0, "", fontsize=9, color="C3",
+                     ha="left", va="bottom", transform=ax.transAxes)
+    txt_kp = ax.text(0.0, 0.0, "", fontsize=9, color="C2",
+                     ha="left", va="bottom", transform=ax.transAxes)
+
+    ax.set_xlabel(r"$k\ [l_*^{-1}]$")
+    ylabels = {"E": r"$E(k)$", "kE": r"$k\,E(k)$", "kH": r"$k\,|H(k)|$"}
+    ax.set_ylabel(ylabels.get(ymode, r"$P(k)$"))
+    ax.grid(alpha=0.25)
+
+    # Nice y-lims from a robust snapshot (last frame by default)
+    y_ref = spec_y(it[-1])
+    with np.errstate(invalid="ignore"):
+        y_min = np.nanmin(y_ref[y_ref > 0]) if np.isfinite(y_ref).any() else 1e-30
+        y_max = np.nanmax(y_ref) if np.isfinite(y_ref).any() else 1.0
+    if not np.isfinite(y_min) or y_min <= 0: y_min = 1e-30
+    if not np.isfinite(y_max) or y_max <= y_min: y_max = y_min * 10
+    ax.set_xlim(max(np.nanmin(k[k>0]), 1e-9), np.nanmax(k)*1.05)
+    ax.set_ylim(y_min*0.5, y_max*2.0)
+
+    # Precompute interpolants for moving markers
+    def val_at_time(tt, yy, t_now):
+        if tt.size == 0 or yy.size == 0: return np.nan
+        # nearest in time (robust)
+        idx = np.argmin(np.abs(tt - t_now))
+        return yy[idx]
+
+    def init():
+        line.set_data([], [])
+        v_kc.set_xdata([np.nan, np.nan])
+        v_kp.set_xdata([np.nan, np.nan])
+        txt_kc.set_text("")
+        txt_kp.set_text("")
+        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+
+    def update(frame_index):
+        i = it[frame_index]
+        y = spec_y(i)
+        line.set_data(k, y)
+
+        # moving markers at this pw time
+        t_now = t[i]
+        kc_now = val_at_time(tt_kc, kc, t_now)
+        kp_now = val_at_time(tt_kp, kp, t_now)
+
+        if np.isfinite(kc_now) and (k.min() < kc_now < k.max()):
+            v_kc.set_xdata([kc_now, kc_now])
+            txt_kc.set_text(r"$k_{\rm CPI}$")
+            txt_kc.set_position((0.03, 0.92))
+        else:
+            v_kc.set_xdata([np.nan, np.nan]); txt_kc.set_text("")
+
+        if np.isfinite(kp_now) and (k.min() < kp_now < k.max()):
+            v_kp.set_xdata([kp_now, kp_now])
+            txt_kp.set_text(r"$k_{\rm peak}$")
+            txt_kp.set_position((0.18, 0.92))
+        else:
+            v_kp.set_xdata([np.nan, np.nan]); txt_kp.set_text("")
+
+        title.set_text(f"{run}: {field}  (t = {t_now:.3g})")
+        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+
+    anim = FuncAnimation(
+        fig, update, init_func=init, frames=len(it),
+        interval=1000/cfg.anim_fps, blit=False
+    )
+
+    os.makedirs(cfg.VID_DIR, exist_ok=True)
+    mp4_path = os.path.join(cfg.VID_DIR, f"{out_basename}.mp4")
+    gif_path = os.path.join(cfg.VID_DIR, f"{out_basename}.gif")
+
+    try:
+        writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
+        anim.save(mp4_path, writer=writer, dpi=180)
+        print("Saved:", mp4_path)
+    except Exception as e:
+        print(f"[{run}] ffmpeg unavailable ({e}); falling back to GIF.")
+        writer = PillowWriter(fps=cfg.anim_fps)
+        anim.save(gif_path, writer=writer, dpi=150)
+        print("Saved:", gif_path)
+
+    plt.close(fig)
 
 # -----------------------------
 # 6) Pipeline driver
@@ -588,6 +783,21 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
             brms_f, H_f, B2L_f, Xi_f,
             brms_max, H_max, B2L_max, Xi_max,
         ))
+        
+
+            # Animations
+        if pw is not None:
+            if cfg.make_anim_mag and hasattr(pw, "mag"):
+                animate_spectrum(
+                    pw, ts, par, cfg, name, field="mag",
+                    k_scale=par1.wav1, out_basename=f"{name}_mag"
+                )
+            if cfg.make_anim_hel and hasattr(pw, "hel_mag"):
+                animate_spectrum(
+                    pw, ts, par, cfg, name, field="hel_mag",
+                    k_scale=par1.wav1, out_basename=f"{name}_hel"
+                )
+
 
     # Write a simple CSV summary
     if summary_rows:
@@ -606,7 +816,7 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
 
 
 # -----------------------------
-# 6) Main
+# 7) Main
 # -----------------------------
 if __name__ == "__main__":
 
