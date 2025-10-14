@@ -25,13 +25,14 @@ class Config:
     # Paths
     HOME: str = os.path.expanduser("~")
     ROOT: str = os.path.join(os.path.expanduser("~"),
-                             "programming",  "murman", "CME", "5012", "1D_update")
+                             "programming",  "murman", "CME", "3D")
+
     FIG_DIR: str = os.path.join(ROOT, "figs_cmi")
     VID_DIR: str = os.path.join(ROOT, "Video")
     # Plotting & behavior
     use_tex: bool = True
-    dpi: int = 130
-    k_scale: float = 1000.0   # multiply pow.krms by this (wav1=1000)
+    dpi: int = 200
+    #k_scale: float = 1000.0   # multiply pow.krms by this (wav1=1000)
     log_time_cmap: bool = True
     t_offset: float = 0.0     # subtract from times if your data needs t-1 etc.
     color_map: str = "plasma"
@@ -71,11 +72,35 @@ def setup_style(cfg: Config) -> None:
 # 2) Discovery & reading
 # -----------------------------
 def discover_sims(root: str) -> List[pc.sim.simulation]:
-    runs = sorted([
-        name for name in os.listdir(root)
-        if os.path.isdir(os.path.join(root, name)) and not name.startswith(".") and name != "CVS"
-    ])
-    return [pc.get_sim(os.path.join(root, r)) for r in runs]
+    """Return only valid Pencil sims under root (skip figs, Video, etc.)."""
+    sims: List[pc.sim.simulation] = []
+    for name in sorted(os.listdir(root)):
+        if name.startswith(".") or name in {"CVS", "figs_cmi", "Video"}:
+            continue
+        path = os.path.join(root, name)
+        if not os.path.isdir(path):
+            continue
+
+        # Quietly probe; pc.get_sim() returns falsy if not a sim
+        sim = pc.get_sim(path, quiet=True)
+        if not sim:
+            # optional: print(f"? Skipping {name}: not a Pencil sim")
+            continue
+
+        # Make sure basic data exists (avoid later dim.dat errors)
+        dimdat = os.path.join(sim.datadir, "dim.dat")
+        if not os.path.exists(dimdat):
+            print(f"? WARNING: Skipping {name}: missing {dimdat}")
+            continue
+
+        sims.append(sim)
+
+    if not sims:
+        print(f"? WARNING: No simulations found in {root}")
+    else:
+        print("Detected runs:", [s.name for s in sims])
+    return sims
+
 
 def read_everything(sims: List[pc.sim.simulation]):
     pow_all: Dict[str, object] = {}
@@ -223,7 +248,8 @@ def get_param_val(p, name: str) -> float:
         return float("nan")
 
 def _filter_sims(sims, only_runs=None, like=None, regex=None):
-    names = [s.name for s in sims]
+    """Filter already-validated sims; never assume elements have .name."""
+    names = [s.name for s in sims if hasattr(s, "name")]
     keep = set(names)
 
     if only_runs:
@@ -236,7 +262,11 @@ def _filter_sims(sims, only_runs=None, like=None, regex=None):
         pat = re.compile(regex)
         keep &= {n for n in names if pat.search(n)}
 
-    return [s for s in sims if s.name in keep]
+    sel = [s for s in sims if getattr(s, "name", None) in keep]
+    if not sel:
+        print("No runs matched your filter.")
+        print("Available:", names)
+    return sel
 
 def _pick_geo_window(k, frac_range=(0.2, 0.6)):
     """Pick a contiguous window in k (by fraction of sorted positive k)."""
@@ -397,7 +427,7 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     # Add slope guide lines
     # Example: line with slope 1 (∝ t) and slope 2 (∝ t²)
-    x0, x1 = t[10], t[50]    # choose points within your t range
+    x0, x1 = t[1], t[10]    # choose points within your t range
     y0 = 1e2                 # adjust y0 for vertical placement
     y1 = 1e0
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -432,7 +462,7 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     ax.loglog(t, np.abs(brms), "o-", label=r"$B_{\mathrm{rms}} ~~ [E_{*}^{1/2} l_*^{-3/2}]$")
     ax.loglog(t, np.abs(hel), "x-",label=r"$|h_M| ~~ [E_*l_*^{-2}] $")
     #ax.loglog(t, np.sqrt(lam) * np.abs(ts.abm), 'o-', label=r"$\sqrt{\lambda} \int d^3x A\cdot B ~~ [E_*^{1/2}l_*^{-3/2}]$") # 10**8 lmabda
-    ax.loglog(t, np.abs(ts.abm), 'o-', label=r"$h_M ~~ [E_*l_*^{-2}] $")
+    #ax.loglog(t, np.abs(ts.abm), 'o-', label=r"$h_M ~~ [E_*l_*^{-2}] $")
     add_time_vlines(ax,compute_time_markers(ts,p))
     ax.set_xlabel(r"conformal time :~~ $t~~ [t_*]$",fontsize =12)
     ax.set_ylabel(r"magnetic field")
@@ -638,8 +668,8 @@ def animate_spectrum(
         y_max = np.nanmax(y_ref) if np.isfinite(y_ref).any() else 1.0
     if not np.isfinite(y_min) or y_min <= 0: y_min = 1e-30
     if not np.isfinite(y_max) or y_max <= y_min: y_max = y_min * 10
-    ax.set_xlim(max(np.nanmin(k[k>0]), 1e-9), np.nanmax(k)*1.05)
-    ax.set_ylim(y_min*0.5, y_max*2.0)
+    ax.set_xlim(0.1, 1e3 * k_scale)   # k in [0.1, 10^3 * wav1]
+    ax.set_ylim(1e-31, 1e5)           # y in [10^-31, 10^5]
 
     # Precompute interpolants for moving markers
     def val_at_time(tt, yy, t_now):
