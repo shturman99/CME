@@ -49,7 +49,7 @@ class Config:
     # animations
     make_anim_mag: bool = True
     make_anim_hel: bool = True
-    anim_fps: int = 20
+    anim_fps: int = 10
     anim_stride: int = 1      # use every Nth time slice
     anim_y: str = "kE"        # "E" for Em(k), "kE" for k*Em(k), "kH" for k*|H(k)|
     anim_xmin, anim_xmax = 10 ** (-1), 10 ** (3)
@@ -418,19 +418,19 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     # Add slope guide lines
     # Example: line with slope 1 (∝ t) and slope 2 (∝ t²)
-    x0, x1 = t[1], t[10]    # choose points within your t range
-    y0 = 1e2                 # adjust y0 for vertical placement
-    y1 = 1e0
-    fig, ax = plt.subplots(figsize=(6, 4))
-    # slope 1: y ∝ t
-    ax.plot([x0, x1], [y0, y0 * (x1/x0)], 'k--', lw=1)
+   # x0, x1 = t[1], t[10]    # choose points within your t range
+   # y0 = 1e2                 # adjust y0 for vertical placement
+   # y1 = 1e0
+   # fig, ax = plt.subplots(figsize=(6, 4))
+   # # slope 1: y ∝ t
+   # ax.plot([x0, x1], [y0, y0 * (x1/x0)], 'k--', lw=1)
 
-    # slope 2: y ∝ t²
-    ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
+   # # slope 2: y ∝ t²
+   # ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
 
-    # Optional: annotate them
-    ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$", fontsize=9, va="bottom")
-    ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$", fontsize=9, va="bottom")
+   # # Optional: annotate them
+   # ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$", fontsize=9, va="bottom")
+   # ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$", fontsize=9, va="bottom")
     ax.loglog(t, np.abs(mu5), "-x", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(S5_over_G), "--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5}$" )
@@ -685,8 +685,12 @@ def animate_spectrum(
                      clip_on=True, bbox=bbox_kw)
 
     ax.set_xlabel(r"$k\ [l_*^{-1}]$")
-    ylabels = {"E": r"$E(k)$", "kE": r"$k\,E(k)$", "kH": r"$k\,|H(k)|$"}
-    ax.set_ylabel(ylabels.get(ymode, r"$P(k)$"))
+
+    ylabels = {"kE": r"$\mathrm{d}\rho_B/\mathrm{d}\ln k  ~~ [E_* l_*^{-3}]$",
+               "kH" : r"$|\mathrm{d}h_M/\mathrm{d}\ln k  ~~ [E_* l_*^{-2}]|$"}
+               
+    ax.set_xlabel(xlabel=r"$k~~[l_*^{-1}]$") 
+    ax.set_ylabel(ylabels[ymode] )
     ax.grid(alpha=0.25)
 
     ax.set_xlim(cfg.anim_xmin * k_scale, cfg.anim_xmax * k_scale)
