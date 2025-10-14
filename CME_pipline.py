@@ -49,6 +49,7 @@ class Config:
     # animations
     make_anim_mag: bool = True
     make_anim_hel: bool = True
+    make_anim_hel_frac: bool = True
     anim_fps: int = 10
     anim_stride: int = 1      # use every Nth time slice
     anim_y: str = "kE"        # "E" for Em(k), "kE" for k*Em(k), "kH" for k*|H(k)|
@@ -56,7 +57,7 @@ class Config:
     anim_ymin, anim_ymax = 10 ** (-29), 10 ** (5)
 
     # Safety
-    eps: float = 1e-30
+    eps: float = 1e-40
 
 def setup_style(cfg: Config) -> None:
     os.makedirs(cfg.FIG_DIR, exist_ok=True)
@@ -72,9 +73,9 @@ def setup_style(cfg: Config) -> None:
 # -----------------------------
 # 2) Discovery & reading
 # -----------------------------
-def discover_sims(root: str) -> List[pc.sim.simulation]:
+def discover_sims(root: str) -> List[pc.sim.simulation]: # type: ignore
     """Return only valid Pencil sims under root (skip figs, Video, etc.)."""
-    sims: List[pc.sim.simulation] = []
+    sims: List[pc.sim.simulation] = [] # type: ignore
     for name in sorted(os.listdir(root)):
         if name.startswith(".") or name in {"CVS", "figs_cmi", "Video"}:
             continue
@@ -99,35 +100,35 @@ def discover_sims(root: str) -> List[pc.sim.simulation]:
     if not sims:
         print(f"? WARNING: No simulations found in {root}")
     else:
-        print("Detected runs:", [s.name for s in sims])
+        print("Detected runs:", [s.name for s in sims]) # type: ignore
     return sims
 
 
-def read_everything(sims: List[pc.sim.simulation]):
+def read_everything(sims: List[pc.sim.simulation]): # type: ignore
     pow_all: Dict[str, object] = {}
     params_all: Dict[str, object] = {}
     params_all1: Dict[str, object] = {}
     ts_all: Dict[str, object] = {}
 
     for sim in sims:
-        name = sim.name
+        name = sim.name # type: ignore
         try:
-            pow_all[name] = read.power(datadir=sim.datadir)
+            pow_all[name] = read.power(datadir=sim.datadir) # type: ignore
         except Exception as e:
             print(f"[{name}] power reading failed: {e}")
 
         try:
-            params_all[name] = read.param(datadir=sim.datadir, param2=True)
+            params_all[name] = read.param(datadir=sim.datadir, param2=True) # type: ignore
         except Exception as e:
             print(f"[{name}] params reading failed: {e}")
 
         try:
-            params_all1[name] = read.param(datadir=sim.datadir, param1=True)
+            params_all1[name] = read.param(datadir=sim.datadir, param1=True) # type: ignore
         except Exception as e:
             print(f"[{name}] params1 reading failed: {e}")
 
         try:
-            ts_all[name] = read.ts(datadir=sim.datadir, file_name="time_series.dat")
+            ts_all[name] = read.ts(datadir=sim.datadir, file_name="time_series.dat") # type: ignore
         except Exception as e:
             print(f"[{name}] time series reading failed: {e}")
 
@@ -185,7 +186,7 @@ def integ_trapz_yx(y: np.ndarray, x: np.ndarray) -> float:
     """Safe trapezoidal ∫ y dx with basic checks."""
     if y.size < 2 or x.size < 2:
         return np.nan
-    return np.trapz(y, x)
+    return np.trapz(y, x) # type: ignore
 
 def compute_helicity_timeseries(pw, use_abs=True) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -324,7 +325,6 @@ def kcpi_series(ts, k_scale: float) -> Tuple[np.ndarray, np.ndarray]:
 def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.ndarray]:
     """
     Return (t, k_peak(t)) where peak is argmax over k of:
-      ymode="E"  -> |E(k)|
       ymode="kE" -> k*|E(k)|
       ymode="kH" -> k*|H(k)|
     """
@@ -341,10 +341,7 @@ def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.
     peaks = np.full(arr.shape[0], np.nan)
     for i in range(arr.shape[0]):
         spec = np.abs(arr[i])
-        if ymode == "E":
-            y = spec
-        else:
-            y = ksafe * spec  # "kE" or "kH"
+        y = ksafe * spec  
         if np.all(~np.isfinite(y)):
             continue
         idx = np.nanargmax(y)
@@ -469,8 +466,8 @@ def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
         min_pos = np.nanmin(tt[tt > 0]) if (tt > 0).any() else 1.0
         tt = np.where(tt > 0, tt, min_pos)
         tt = np.log10(tt)
-    norm = mpl.colors.Normalize(vmin=np.nanmin(tt), vmax=np.nanmax(tt))
-    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+    norm = mpl.colors.Normalize(vmin=np.nanmin(tt), vmax=np.nanmax(tt)) # type: ignore
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap) # type: ignore
     return tt, sm
 
 def plot_alltimes_spectrum(
@@ -605,9 +602,7 @@ def animate_spectrum(
 
     def spec_y(i):
         s = np.abs(arr[i])
-        if ymode == "E":
-            return s
-        elif ymode in ("kE", "kH"):
+        if ymode in ("kE", "kH"):
             return k * s
         return s
 
@@ -770,24 +765,234 @@ def animate_spectrum(
         print("Saved:", gif_path)
 
     plt.close(fig)
+
+def animate_helicity_fraction(
+    pw, ts, p2, cfg: Config, run: str, k_scale: float, out_basename: str
+) -> None:
+    """
+    Animate helicity fraction hfrac(k,t) = (k H)/(2E) with:
+    """
+    # ----- data presence checks -----
+    if pw is None or not (hasattr(pw, "mag") and hasattr(pw, "hel_mag")):
+        print(f"[{run}] need mag & hel_mag in power.dat for helicity-fraction animation")
+        return
+
+    # ----- spectra & grids -----
+    k     = np.asarray(pw.krms) * k_scale     # (nk,)
+    EmAll = np.asarray(pw.mag)                # (nt, nk)
+    HmAll = np.asarray(pw.hel_mag)            # (nt, nk)
+    t_pw  = np.asarray(pw.t)                  # (nt,)
+
+    # time subsampling
+    it = np.arange(0, EmAll.shape[0], max(1, cfg.anim_stride))
+    if it.size == 0:
+        print(f"[{run}] nothing to animate for helicity fraction")
+        return
+
+    finite_cols_any_time = np.any(np.isfinite(EmAll) | np.isfinite(HmAll), axis=0)
+    
+    valid_k_grid = (k > 0) & np.isfinite(k) & finite_cols_any_time
+    if not np.any(valid_k_grid):
+        print(f"[{run}] no valid k grid for helicity fraction")
+        return
+
+    # lock the x-grid for the entire animation
+    k_fixed_x = k[valid_k_grid]
+    k_grid_mark = k_fixed_x  # keep your tick markers consistent too
+
+
+
+    if not np.any(valid_k_grid):
+        print(f"[{run}] no valid k grid for helicity fraction")
+        return
+    k_grid_mark = k[valid_k_grid]
+
+    # ----- fixed theory markers -----
+    k_fixed = compute_k_markers(p2) if p2 is not None else []
+
+    # ----- moving markers (no interpolation) -----
+    # k_peak is already aligned with pw.t
+    _, kp_series = kpeak_series(pw, k_scale, ymode="kE")
+    # k_CPI comes from ts.t — map to pw.t by nearest neighbor (no interp)
+    tt_kc, kc_raw = kcpi_series(ts, k_scale)
+    if tt_kc.size >= 1 and kc_raw.size == tt_kc.size:
+        # precompute nearest-neighbor map from each t_pw to an index in tt_kc
+        idx_nn = np.searchsorted(tt_kc, t_pw).astype(int)
+        idx_nn = np.clip(idx_nn, 0, tt_kc.size - 1)
+        # choose closer of (idx_nn) vs (idx_nn-1) when applicable
+        idx_nn = np.where(
+            (idx_nn > 0) &
+            (np.abs(tt_kc[idx_nn] - t_pw) > np.abs(tt_kc[idx_nn - 1] - t_pw)),
+            idx_nn - 1,
+            idx_nn,
+        )
+        kc_series_on_pw = kc_raw[idx_nn]
+    else:
+        kc_series_on_pw = np.full_like(t_pw, np.nan, dtype=float)
+
+    # ----- global y-lims so nothing gets hidden -----
+    def _hfrac_from_arrays(Em, Hm, kvec, eps):
+        valid = (kvec > 0) & np.isfinite(kvec) & np.isfinite(Em) & np.isfinite(Hm) & (np.abs(Em) > 0)
+        kv = kvec[valid]
+        hfrac = 0.5 * kv * (Hm[valid]) / (Em[valid] + eps)  # NO CLIP
+        return kv, hfrac
+
+    ymin, ymax = -1.5, 1.5
+   
+    # ----- figure -----
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    # show discrete k points with markers
+    line, = ax.semilogx([], [], lw=1.2, color="C0", marker="o",
+                        markersize=3.0, markerfacecolor="none", markeredgewidth=0.8)
+    title = ax.set_title(f"{run}: helicity fraction")
+
+    # fixed vlines
+    fixed_artists = []
+    for x, lab in (k_fixed or []):
+        if np.isfinite(x):
+            fixed_artists += [
+                ax.axvline(x, color="0.65", ls="--", lw=0.8),
+                ax.text(x, 0.92, lab, rotation=90, va="top",
+                        transform=ax.get_xaxis_transform(), fontsize=8)
+            ]
+
+    # moving vlines (no time interpolation)
+    v_kc = ax.axvline(np.nan, color="C3", ls="-.", lw=1.0, alpha=0.9)
+    v_kp = ax.axvline(np.nan, color="C2", ls=":",  lw=1.2, alpha=0.9)
+
+    # labels that track vlines: X=data coords, Y=axes coords
+    data_x_axes_y = mtransforms.blended_transform_factory(ax.transData, ax.get_xaxis_transform())
+    offset = mtransforms.ScaledTranslation(4/72, 0, fig.dpi_scale_trans)
+    bbox_kw = dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.6)
+
+    txt_kc = ax.text(np.nan, 0.93, r"$k_{\rm CPI}$",
+                     transform=data_x_axes_y + offset,
+                     fontsize=9, color="C3", ha="left", va="bottom",
+                     clip_on=True, bbox=bbox_kw)
+    txt_kp = ax.text(np.nan, 0.93, r"$k_{\rm peak}$",
+                     transform=data_x_axes_y + offset,
+                     fontsize=9, color="C2", ha="left", va="bottom",
+                     clip_on=True, bbox=bbox_kw)
+
+    ## tiny tick marks at every available k (in axes coords near the bottom)
+    #k_ticks_tf = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+    #for xk in k_grid_mark:
+    #    ax.plot([xk, xk], [0.02, 0.06], color="0.8", lw=0.6,
+    #            transform=k_ticks_tf, solid_capstyle="butt", zorder=0)
+
+    ax.set_xlabel(r"$k~~[l_*^{-1}]$")
+    ax.set_ylabel(r"helicity fraction $kh_M/2\rho_B$")
+    ax.set_xlim(cfg.anim_xmin * k_scale, cfg.anim_xmax * k_scale)
+    ax.set_ylim(ymin, ymax)
+    ax.grid(alpha=0.25)
+
+    def _visible_on_axes(x):
+        xmin, xmax = ax.get_xlim()
+        return np.isfinite(x) and (xmin < x < xmax)
+
+    def _maybe_flip_alignment(txt, xdata):
+        xmin, xmax = ax.get_xlim()
+        if np.isfinite(xdata) and xdata > 0.95 * xmax:
+            txt.set_ha("right")
+            txt.set_transform(data_x_axes_y + mtransforms.ScaledTranslation(-4/72, 0, fig.dpi_scale_trans))
+        else:
+            txt.set_ha("left")
+            txt.set_transform(data_x_axes_y + offset)
+
+    def init():
+        line.set_data([], [])
+        v_kc.set_xdata([np.nan, np.nan]); v_kp.set_xdata([np.nan, np.nan])
+        txt_kc.set_position((np.nan, 0.93)); txt_kc.set_visible(False)
+        txt_kp.set_position((np.nan, 0.93)); txt_kp.set_visible(False)
+        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+
+    def update(frame_idx):
+        i = it[frame_idx]
+        Em = np.asarray(EmAll[i], dtype=float)
+        Hm = np.asarray(HmAll[i], dtype=float)
+
+        Em = np.asarray(EmAll[i], dtype=float)
+        Hm = np.asarray(HmAll[i], dtype=float)
+
+        # slice on the same k’s every frame, coerce bad values to 0 (no drop)
+        Em_i = np.nan_to_num(Em[valid_k_grid], nan=0.0, posinf=0.0, neginf=0.0)
+        Hm_i = np.nan_to_num(Hm[valid_k_grid], nan=0.0, posinf=0.0, neginf=0.0)
+
+        # constant-size fraction vector
+        hfrac = 0.5 * k_fixed_x * Hm_i / (Em_i + cfg.eps)
+
+        # sanity check (will raise immediately if something goes off the rails)
+        assert hfrac.shape == k_fixed_x.shape, (
+            f"[{run}] hfrac size {hfrac.shape} != k size {k_fixed_x.shape} at frame {i}"
+        )
+
+        line.set_data(k_fixed_x, hfrac) 
+
+
+        # vertical markers at this exact frame (no interpolation)
+        kc_now = kc_series_on_pw[i] if i < kc_series_on_pw.size else np.nan
+        if _visible_on_axes(kc_now):
+            v_kc.set_xdata([kc_now, kc_now]) # type: ignore
+            txt_kc.set_position((kc_now, 0.93)) # type: ignore
+            _maybe_flip_alignment(txt_kc, kc_now)
+            txt_kc.set_visible(True)
+        else:
+            v_kc.set_xdata([np.nan, np.nan])
+            txt_kc.set_visible(False)
+
+        kp_now = kp_series[i] if i < kp_series.size else np.nan
+        if _visible_on_axes(kp_now):
+            v_kp.set_xdata([kp_now, kp_now]) # type: ignore
+            txt_kp.set_position((kp_now, 0.93)) # type: ignore
+            _maybe_flip_alignment(txt_kp, kp_now)
+            txt_kp.set_visible(True)
+        else:
+            v_kp.set_xdata([np.nan, np.nan])
+            txt_kp.set_visible(False)
+
+        title.set_text(f"{run}: helicity fraction  (t = {t_pw[i]:.3g})")
+        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+
+    anim = FuncAnimation(fig, update, init_func=init, frames=len(it),
+                         interval=1000/cfg.anim_fps, blit=False)
+
+    # ----- save -----
+    os.makedirs(cfg.VID_DIR, exist_ok=True)
+    mp4_path = os.path.join(cfg.VID_DIR, f"{out_basename}.mp4")
+    gif_path = os.path.join(cfg.VID_DIR, f"{out_basename}.gif")
+
+    try:
+        writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
+        anim.save(mp4_path, writer=writer, dpi=180)
+        print("Saved:", mp4_path)
+    except Exception as e:
+        print(f"[{run}] ffmpeg unavailable ({e}); falling back to GIF.")
+        writer = PillowWriter(fps=cfg.anim_fps)
+        anim.save(gif_path, writer=writer, dpi=150)
+        print("Saved:", gif_path)
+
+    plt.close(fig)
+
+
+
 # -----------------------------
 # 6) Pipeline driver
 # -----------------------------
 def run_pipeline(cfg: Config, sims_override=None) -> None:
     setup_style(cfg)
     sims = sims_override if sims_override is not None else discover_sims(cfg.ROOT)
-    print("Detected runs:", [s.name for s in sims])
+    print("Detected runs:", [s.name for s in sims]) # type: ignore
     pow_all, params_all,params_all1, ts_all = read_everything(sims)
     # Optional: accumulate a small summary table
     summary_rows = []
 
     for sim in sims:
-        name = sim.name
+        name = sim.name # type: ignore
         pw  = pow_all.get(name)
         ts  = ts_all.get(name)
         par = params_all.get(name)
         par1 = params_all1.get(name)
-        print(f"___________{par1.wav1}_______________________")
+        print(f"___________{par1.wav1}_______________________") # type: ignore
         if ts is None or par is None:
             print(f"[{name}] skipping (missing ts/params).")
             continue
@@ -803,21 +1008,21 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
 
         # Spectra-style figures
         if pw is not None and cfg.make_mag_alltimes:
-            plot_alltimes_spectrum(pw, cfg,par1.wav1, name, field="mag", k_markers=k_mks,slope_exponents=[2,3,4])
+            plot_alltimes_spectrum(pw, cfg,par1.wav1, name, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and hasattr(pw, "hel_mag") and cfg.make_hel_alltimes:
-            plot_alltimes_spectrum(pw, cfg, par1.wav1,name, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4])
+            plot_alltimes_spectrum(pw, cfg, par1.wav1,name, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and cfg.make_helicity_fraction:
-            plot_helicity_fraction_alltimes(pw, cfg,par1.wav1, name, k_markers=k_mks)
+            plot_helicity_fraction_alltimes(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
 
         if pw is not None and cfg.make_final_spectra:
-            plot_final_spectra_with_bound(pw, cfg,par1.wav1, name, k_markers=k_mks)
+            plot_final_spectra_with_bound(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
 
         # Summary metrics: final B_rms, final H_int, final B^2 ξ_M
         try:
-            brms_f = float(ts.brms[-1])
-            brms_max = np.max(ts.brms)
+            brms_f = float(ts.brms[-1]) # type: ignore
+            brms_max = np.max(ts.brms) # type: ignore
         except Exception:
             brms_f = np.nan
 
@@ -829,7 +1034,7 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
             H_f = np.nan
 
         try:
-            tB2L, B2L, B2, Xi = compute_B2_lcoh_weighted(pw, k_scale=par1.wav1) if pw is not None else (np.array([]),)*4
+            tB2L, B2L, B2, Xi = compute_B2_lcoh_weighted(pw, k_scale=par1.wav1) if pw is not None else (np.array([]),)*4 # type: ignore
             B2L_f = float(B2L[-1]) if B2L.size else np.nan
             Xi_f  = float(Xi[-1]) if Xi.size else np.nan
             B2L_max = np.max(B2L) if B2L.size else np.nan
@@ -856,29 +1061,34 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
             if cfg.make_anim_mag and hasattr(pw, "mag"):
                 animate_spectrum(
                     pw, ts, par, cfg, name, field="mag",
-                    k_scale=par1.wav1, out_basename=f"{name}_mag"
+                    k_scale=par1.wav1, out_basename=f"{name}_mag" # type: ignore
                 )
             if cfg.make_anim_hel and hasattr(pw, "hel_mag"):
                 animate_spectrum(
                     pw, ts, par, cfg, name, field="hel_mag",
-                    k_scale=par1.wav1, out_basename=f"{name}_hel"
+                    k_scale=par1.wav1, out_basename=f"{name}_hel" # type: ignore
+                )
+            if cfg.make_anim_hel_frac and hasattr(pw, "hel_mag") and hasattr(pw, "mag"):
+                animate_helicity_fraction(
+                    pw, ts, par, cfg, name,
+                    k_scale=par1.wav1, out_basename=f"{name}_hfrac" # type: ignore
                 )
 
 
-    # Write a simple CSV summary
-    if summary_rows:
-        import csv
-        csv_path = os.path.join(cfg.FIG_DIR, "summary.csv")
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                                "run",
-                                "lambda5", "source5", "eta", "nu", "diffmu5", "gammaf5",
-                                "Brms_final", "Hint_final", "B2_xi_final", "xi_final",
-                                "Brms_max", "Hint_max", "B2_xi_max", "xi_max"
-                            ])
-            writer.writerows(summary_rows)
-        print("Wrote summary:", csv_path)
+#    # Write a simple CSV summary
+#    if summary_rows:
+#        import csv
+#        csv_path = os.path.join(cfg.FIG_DIR, "summary.csv")
+#        with open(csv_path, "w", newline="") as f:
+#            writer = csv.writer(f)
+#            writer.writerow([
+#                                "run",
+#                                "lambda5", "source5", "eta", "nu", "diffmu5", "gammaf5",
+#                                "Brms_final", "Hint_final", "B2_xi_final", "xi_final",
+#                                "Brms_max", "Hint_max", "B2_xi_max", "xi_max"
+#                            ])
+#            writer.writerows(summary_rows)
+#        print("Wrote summary:", csv_path)
 
 
 # -----------------------------
@@ -901,7 +1111,7 @@ if __name__ == "__main__":
     sims_all = discover_sims(cfg.ROOT)
 
     if args.list:
-        print("Detected runs:", [s.name for s in sims_all])
+        print("Detected runs:", [s.name for s in sims_all]) # type: ignore
         sys.exit(0)
 
     # Apply filters (default: keep all)
@@ -912,7 +1122,7 @@ if __name__ == "__main__":
 
     if not sims_sel:
         print("No runs matched your filter.")
-        print("Available:", [s.name for s in sims_all])
+        print("Available:", [s.name for s in sims_all]) # type: ignore
         sys.exit(1)
 
     # Run pipeline only on selected sims
