@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/entropy_onefluid.f90

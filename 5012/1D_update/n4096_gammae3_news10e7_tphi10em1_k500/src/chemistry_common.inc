@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/chemistry_common.inc

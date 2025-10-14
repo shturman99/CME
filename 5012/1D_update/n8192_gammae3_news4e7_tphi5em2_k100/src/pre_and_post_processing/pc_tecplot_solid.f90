@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/pre_and_post_processing/pc_tecplot_solid.f90

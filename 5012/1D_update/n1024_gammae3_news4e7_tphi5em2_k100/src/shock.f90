@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/shock.f90

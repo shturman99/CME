@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/thermal_energy.f90

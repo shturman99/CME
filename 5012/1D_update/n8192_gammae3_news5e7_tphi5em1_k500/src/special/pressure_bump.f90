@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/special/pressure_bump.f90

@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/special/streamfunction_multigrid.f90

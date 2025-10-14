@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/special/lucky_droplet.f90

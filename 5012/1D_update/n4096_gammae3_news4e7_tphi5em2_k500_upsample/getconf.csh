@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/bin/getconf.csh

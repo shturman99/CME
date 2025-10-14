@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/testfield_axisym.f90

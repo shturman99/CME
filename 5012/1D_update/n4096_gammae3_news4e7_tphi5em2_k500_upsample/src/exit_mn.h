@@ -1,1 +1,0 @@
-exit mn_loop

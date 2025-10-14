@@ -1,1 +1,0 @@
-/home/mgurgeni/pencil-code/src/special/disp_current.f90
