@@ -348,6 +348,47 @@ def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.
         peaks[i] = k[idx] if np.isfinite(y[idx]) else np.nan
     return t, peaks
         
+# --- Slides export helpers ----------------------------------------------------
+def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300):
+    """
+    Export a figure for Google Slides (SVG + PNG) and a PDF for print.
+    - SVG: mathtext (no usetex) so text remains vector/selectable in Slides
+    - PNG: high-DPI fallback if your Slides workspace rasterizes SVG
+    - PDF: with your current cfg.use_tex setting (great for print)
+    """
+    import matplotlib as mpl
+
+    # Size to match a 16:9 slide; avoids internal rescaling in Slides
+    fig.set_size_inches(*slide_inches, forward=True)
+
+    # Always make a PDF with current rcParams (often usetex=True for print)
+    fig.savefig(base_no_ext + ".pdf", bbox_inches="tight")
+
+    # Re-render just for Slides assets with TeX off and vector-friendly fonts
+    with mpl.rc_context({
+        "text.usetex": False,      # use mathtext so SVG keeps text as text
+        "svg.fonttype": "none",    # do not convert fonts to paths
+        "pdf.fonttype": 42,        # (no effect on SVG, but fine to keep)
+        "ps.fonttype": 42,
+        "savefig.bbox": "tight",
+        "savefig.transparent": False,
+    }):
+        fig.savefig(base_no_ext + ".svg")
+        fig.savefig(base_no_ext + ".png", dpi=png_dpi)
+
+
+def export_video_mp4(anim, out_mp4, fps=24, width_px=1920, height_px=1080, bitrate=8000):
+    """
+    Save animation as H.264 MP4 sized to the slide (16:9). If your figure hasn't
+    been sized yet, set it before creating the FuncAnimation:
+        fig.set_size_inches(10.0, 5.625)  # 1920x1080 at dpi=192
+    """
+    from matplotlib.animation import FFMpegWriter
+    writer = FFMpegWriter(fps=fps, bitrate=bitrate, codec="libx264")
+    # dpi chosen so inches * dpi ≈ target pixels
+    # (e.g., 10in * 192 dpi = 1920 px; 5.625in * 192 dpi = 1080 px)
+    dpi = int(width_px / 10.0)
+    anim.save(out_mp4, writer=writer, dpi=dpi)
 
 
 # -----------------------------
@@ -437,7 +478,9 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     ax.set_ylabel("chiral chemical potential",fontsize =12)
     ax.set_title(run)
     ax.legend()
-    fig.savefig(fig_path(cfg.FIG_DIR, run, "ts"), dpi=150)
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "ts")[:-4])  # strip ".pdf"
+
+ 
     plt.close(fig)
 
 def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
@@ -456,7 +499,8 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     ax.set_ylabel(r"magnetic field")
     ax.set_title(run)
     ax.legend()
-    fig.savefig(fig_path(cfg.FIG_DIR, run, "Brms"), dpi=150)
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "Brms")[:-4])  # strip ".pdf"
+
     plt.close(fig)
 
 def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
@@ -506,7 +550,8 @@ def plot_alltimes_spectrum(
     ax.set_title(f"{run}:  (all times)")
     cbar = fig.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(r"$\log_{10} (t/t_*)$" if cfg.log_time_cmap else r"$t$")
-    fig.savefig(fig_path(cfg.FIG_DIR, run, f"{field}_alltimes"), dpi=160)
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, f"{field}_alltimes")[:-4])  # strip ".pdf"
+
     plt.close(fig)
 
 def plot_final_spectra_with_bound(pw, cfg: Config, k_scale, run: str, k_markers: Optional[List[Tuple[float, str]]] = None) -> None:
@@ -533,7 +578,8 @@ def plot_final_spectra_with_bound(pw, cfg: Config, k_scale, run: str, k_markers:
         ax.set_ylabel("spectral density")
         ax.set_title(f"{run}: final spectra")
         ax.legend()
-        fig.savefig(fig_path(cfg.FIG_DIR, run, "spectra_final"), dpi=160)
+        export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "spectra_final")[:-4])  # strip ".pdf"
+
         plt.close(fig)
 
     except:
@@ -570,7 +616,8 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
     ax.set_title(f"{run}: helicity fraction (all times)")
     cbar = fig.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(r"$\log_{10} (t/t_*)$" if cfg.log_time_cmap else r"$t$")
-    fig.savefig(fig_path(cfg.FIG_DIR, run, "helicity_fraction_alltimes"), dpi=160)
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "helicity_fraction_alltimes")[:-4])  # strip ".pdf"
+
     plt.close(fig)
 
 # -----------------------------
@@ -754,10 +801,17 @@ def animate_spectrum(
     mp4_path = os.path.join(cfg.VID_DIR, f"{out_basename}.mp4")
     gif_path = os.path.join(cfg.VID_DIR, f"{out_basename}.gif")
 
+
+
+
     try:
-        writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
-        anim.save(mp4_path, writer=writer, dpi=180)
+        # ensure the figure is 16:9 for crisp playback in Slides
+        fig.set_size_inches(10.0, 5.625, forward=True)
+        export_video_mp4(anim, mp4_path, fps=cfg.anim_fps, width_px=1920, height_px=1080, bitrate=8000)
         print("Saved:", mp4_path)
+        #writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
+        #anim.save(mp4_path, writer=writer, dpi=180)
+        #print("Saved:", mp4_path)
     except Exception as e:
         print(f"[{run}] ffmpeg unavailable ({e}); falling back to GIF.")
         writer = PillowWriter(fps=cfg.anim_fps)
@@ -960,11 +1014,15 @@ def animate_helicity_fraction(
     os.makedirs(cfg.VID_DIR, exist_ok=True)
     mp4_path = os.path.join(cfg.VID_DIR, f"{out_basename}.mp4")
     gif_path = os.path.join(cfg.VID_DIR, f"{out_basename}.gif")
-
+   
     try:
-        writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
-        anim.save(mp4_path, writer=writer, dpi=180)
+        fig.set_size_inches(10.0, 5.625, forward=True)
+        export_video_mp4(anim, mp4_path, fps=cfg.anim_fps, width_px=1920, height_px=1080, bitrate=8000)
         print("Saved:", mp4_path)
+
+        #writer = FFMpegWriter(fps=cfg.anim_fps, metadata={"artist": "CME pipeline"})
+        #anim.save(mp4_path, writer=writer, dpi=180)
+        #print("Saved:", mp4_path)
     except Exception as e:
         print(f"[{run}] ffmpeg unavailable ({e}); falling back to GIF.")
         writer = PillowWriter(fps=cfg.anim_fps)
