@@ -13,7 +13,7 @@ import argparse, re, sys
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-
+from matplotlib import transforms as mtransforms
 import pencil as pc
 from pencil import read
 
@@ -313,12 +313,12 @@ def add_slope_guides(ax, k, Pk_ref, exponents=(3,),
                 ha="left", va="bottom", color=color)
 
 def kcpi_series(ts, k_scale: float) -> Tuple[np.ndarray, np.ndarray]:
-    """Return (t, k_cpi(t)) with scaling; k_cpi = |mu5|(t)."""
+    """Return (t, k_cpi(t)); k_cpi = |mu5|(t)."""
     if ts is None or not hasattr(ts, "mu5m"):
         return np.array([]), np.array([])
     t = np.asarray(ts.t)
     mu = np.asarray(ts.mu5m)
-    kc = np.abs(mu) * k_scale
+    kc = np.abs(mu) 
     return t, kc
 
 def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.ndarray]:
@@ -585,23 +585,21 @@ def animate_spectrum(
     pw, ts, p2, cfg: Config, run: str, field: str, k_scale: float, out_basename: str
 ) -> None:
     """
-    Animate P(k,t) with:
-      - proper moving verticals for k_CPI(t)=|mu5|(t) and k_peak(t)
-      - visibility based on current xlim (not raw data extent)
-      - time interpolation (no jitter from nearest-neighbor)
-      - markers drawn only where P(k,t) exists and is finite
+    Animate P(k,t) with correctly-tracked moving markers+labels for
+    k_CPI(t)=|mu5|(t) and k_peak(t). Labels use a blended transform so X
+    follows data coords while Y hugs the top of the axes.
     """
     if pw is None or not hasattr(pw, field):
         print(f"[{run}] no field '{field}' in power.dat for animation")
         return
 
-    # --- Data
-    k = np.asarray(pw.krms) * k_scale          # (nk,)
-    arr = np.asarray(getattr(pw, field))       # (nt, nk)
-    t_pw = np.asarray(pw.t)                    # (nt,)
+    # ---------------- Data ----------------
+    k   = np.asarray(pw.krms) * k_scale       # (nk,)
+    arr = np.asarray(getattr(pw, field))      # (nt, nk)
+    t_pw = np.asarray(pw.t)                   # (nt,)
 
-    # Choose Y
     ymode = cfg.anim_y
+    # sensible default for helicity
     if field == "hel_mag" and ymode == "kE":
         ymode = "kH"
 
@@ -611,8 +609,7 @@ def animate_spectrum(
             return s
         elif ymode in ("kE", "kH"):
             return k * s
-        else:
-            return s
+        return s
 
     # Time subsampling
     it = np.arange(0, arr.shape[0], max(1, cfg.anim_stride))
@@ -623,43 +620,42 @@ def animate_spectrum(
     # Fixed theory markers
     k_fixed = compute_k_markers(p2) if p2 is not None else []
 
-    # Moving markers: k_CPI(t) from mu5, k_peak(t) from spectra
-    tt_kc, kc = kcpi_series(ts, k_scale)                  # same units as k
-    tt_kp, kp = kpeak_series(pw, k_scale, ymode=ymode)    # same units as k
+    # Moving markers
+    tt_kc, kc = kcpi_series(ts, k_scale)               # CPI = |mu5|
+    tt_kp, kp = kpeak_series(pw, k_scale, ymode=ymode) # spectral peak
 
-    # Build safe linear interpolants (NaN outside domain or if all-NaN)
+    # Safe linear interpolants
     def _interp_builder(tt, yy):
         tt = np.asarray(tt); yy = np.asarray(yy)
         mask = np.isfinite(tt) & np.isfinite(yy)
-        if mask.sum() < 2:  # not enough to interpolate
+        if mask.sum() < 2:
             return lambda t: np.nan
-        # ensure strictly increasing
         order = np.argsort(tt[mask])
         x = tt[mask][order]; y = yy[mask][order]
         def f(tnow):
-            if not np.isfinite(tnow): return np.nan
-            if tnow < x[0] or tnow > x[-1]: return np.nan
+            if not np.isfinite(tnow) or tnow < x[0] or tnow > x[-1]:
+                return np.nan
             return float(np.interp(tnow, x, y))
         return f
 
     kc_at = _interp_builder(tt_kc, kc)
     kp_at = _interp_builder(tt_kp, kp)
 
-    # Columns that ever have finite data
+    # Only discrete modes that ever have finite data
     finite_cols_any_time = np.any(np.isfinite(arr), axis=0)
     valid_k_grid = (k > 0) & np.isfinite(k) & finite_cols_any_time
     if not np.any(valid_k_grid):
         print(f"[{run}] no valid k grid for {field}")
         return
 
-    # --- Figure
+    # ---------------- Figure ----------------
     fig, ax = plt.subplots(figsize=(6.4, 4.0))
     line, = ax.loglog([], [], lw=1.5, color="C0",
                       marker='x', markersize=4,
                       markerfacecolor='none', markeredgewidth=0.9)
     title = ax.set_title(f"{run}: {field} spectrum")
 
-    # Fixed vlines (static)
+    # Fixed vlines
     fixed_artists = []
     for x, lab in (k_fixed or []):
         if np.isfinite(x):
@@ -669,58 +665,84 @@ def animate_spectrum(
                         transform=ax.get_xaxis_transform(), fontsize=8)
             ]
 
-    # Moving markers
+    # Moving vlines
     v_kc = ax.axvline(np.nan, color="C3", ls="-.", lw=1.0, alpha=0.9)
     v_kp = ax.axvline(np.nan, color="C2", ls=":",  lw=1.2, alpha=0.9)
-    txt_kc = ax.text(0.02, 0.93, "", fontsize=9, color="C3",
-                     ha="left", va="bottom", transform=ax.transAxes)
-    txt_kp = ax.text(0.18, 0.93, "", fontsize=9, color="C2",
-                     ha="left", va="bottom", transform=ax.transAxes)
+
+    # Labels that track vlines: X in data coords, Y in axes coords
+    data_x_axes_y = mtransforms.blended_transform_factory(ax.transData, ax.get_xaxis_transform())
+    # tiny rightward pixel offset to avoid overlap with the vline
+    offset = mtransforms.ScaledTranslation(4/72, 0, fig.dpi_scale_trans)
+    bbox_kw = dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.6)
+
+    txt_kc = ax.text(np.nan, 0.93, r"$k_{\rm CPI}$",
+                     transform=data_x_axes_y + offset,
+                     fontsize=9, color="C3", ha="left", va="bottom",
+                     clip_on=True, bbox=bbox_kw)
+    txt_kp = ax.text(np.nan, 0.93, r"$k_{\rm peak}$",
+                     transform=data_x_axes_y + offset,
+                     fontsize=9, color="C2", ha="left", va="bottom",
+                     clip_on=True, bbox=bbox_kw)
 
     ax.set_xlabel(r"$k\ [l_*^{-1}]$")
     ylabels = {"E": r"$E(k)$", "kE": r"$k\,E(k)$", "kH": r"$k\,|H(k)|$"}
     ax.set_ylabel(ylabels.get(ymode, r"$P(k)$"))
     ax.grid(alpha=0.25)
 
-    # Limits (respect your cfg, but allow any discrete-mode gap on the left)
     ax.set_xlim(cfg.anim_xmin * k_scale, cfg.anim_xmax * k_scale)
     ax.set_ylim(cfg.anim_ymin, cfg.anim_ymax)
 
     def _visible_on_axes(x):
-        """Return True if x lies within current axes x-limits (log-aware)."""
         xmin, xmax = ax.get_xlim()
-        return (np.isfinite(x) and (xmin < x < xmax))
+        return np.isfinite(x) and (xmin < x < xmax)
+
+    def _maybe_flip_alignment(txt, xdata):
+        # Keep label inside if near the right edge
+        xmin, xmax = ax.get_xlim()
+        if np.isfinite(xdata) and xdata > 0.95 * xmax:
+            txt.set_ha("right")
+            txt.set_transform(data_x_axes_y + mtransforms.ScaledTranslation(-4/72, 0, fig.dpi_scale_trans))
+        else:
+            txt.set_ha("left")
+            txt.set_transform(data_x_axes_y + offset)
 
     def init():
         line.set_data([], [])
-        v_kc.set_xdata([np.nan, np.nan])
-        v_kp.set_xdata([np.nan, np.nan])
-        txt_kc.set_text(""); txt_kp.set_text("")
+        v_kc.set_xdata([np.nan, np.nan]); v_kp.set_xdata([np.nan, np.nan])
+        txt_kc.set_position((np.nan, 0.93)); txt_kc.set_visible(False)
+        txt_kp.set_position((np.nan, 0.93)); txt_kp.set_visible(False)
         return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
 
     def update(frame_idx):
         i = it[frame_idx]
         y_full = spec_y(i)
 
-        # draw only existing discrete modes with finite y at this frame
         valid_i = valid_k_grid & np.isfinite(y_full) & (y_full > 0)
         line.set_data(k[valid_i], y_full[valid_i])
 
         t_now = t_pw[i]
 
-        # moving CPI marker
+        # CPI marker + label
         kc_now = kc_at(t_now)
         if _visible_on_axes(kc_now):
-            v_kc.set_xdata([kc_now, kc_now]); txt_kc.set_text(r"$k_{\rm CPI}$")
+            v_kc.set_xdata([kc_now, kc_now])
+            txt_kc.set_position((kc_now, 0.93))
+            _maybe_flip_alignment(txt_kc, kc_now)
+            txt_kc.set_visible(True)
         else:
-            v_kc.set_xdata([np.nan, np.nan]);  txt_kc.set_text("")
+            v_kc.set_xdata([np.nan, np.nan])
+            txt_kc.set_visible(False)
 
-        # moving peak marker
+        # Peak marker + label
         kp_now = kp_at(t_now)
         if _visible_on_axes(kp_now):
-            v_kp.set_xdata([kp_now, kp_now]); txt_kp.set_text(r"$k_{\rm peak}$")
+            v_kp.set_xdata([kp_now, kp_now])
+            txt_kp.set_position((kp_now, 0.93))
+            _maybe_flip_alignment(txt_kp, kp_now)
+            txt_kp.set_visible(True)
         else:
-            v_kp.set_xdata([np.nan, np.nan]);  txt_kp.set_text("")
+            v_kp.set_xdata([np.nan, np.nan])
+            txt_kp.set_visible(False)
 
         title.set_text(f"{run}: {field}  (t = {t_now:.3g})")
         return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
@@ -728,6 +750,7 @@ def animate_spectrum(
     anim = FuncAnimation(fig, update, init_func=init, frames=len(it),
                          interval=1000/cfg.anim_fps, blit=False)
 
+    # ---------------- Save ----------------
     os.makedirs(cfg.VID_DIR, exist_ok=True)
     mp4_path = os.path.join(cfg.VID_DIR, f"{out_basename}.mp4")
     gif_path = os.path.join(cfg.VID_DIR, f"{out_basename}.gif")
