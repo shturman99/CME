@@ -36,7 +36,7 @@ class Config:
     log_time_cmap: bool = True
     t_offset: float = 0.0     # subtract from times if your data needs t-1 etc.
     color_map: str = "plasma"
-
+    mu5_ymin, mu5_ymax = 10 **(-16), 10**(5)
     # Which figures to make
     make_ts: bool = True
     make_brms: bool = True
@@ -347,7 +347,28 @@ def kpeak_series(pw, k_scale: float, ymode: str = "kE") -> Tuple[np.ndarray, np.
         idx = np.nanargmax(y)
         peaks[i] = k[idx] if np.isfinite(y[idx]) else np.nan
     return t, peaks
-        
+
+# --- shared helper (put near other helpers) -------------------------------
+def _spectrum_y(arr_i: np.ndarray, k: np.ndarray, field: str, ymode: str) -> np.ndarray:
+    """
+    Match animate_spectrum(): for 'mag' -> k*|E| if ymode='kE';
+    for 'hel_mag' -> k*|H| if ymode='kH'; otherwise plot |spec|.
+    """
+    s = np.abs(arr_i)
+    if field == "hel_mag" and ymode == "kE":
+        ymode = "kH"  # same sensible default as in animate_spectrum
+    if ymode in ("kE", "kH"):
+        return k * s
+    return s
+
+def _ylabel_for(field: str, ymode: str) -> str:
+    if field == "mag":
+        return r"$\mathrm{d}\rho_B/\mathrm{d}\ln k ~~ [E_*\,l_*^{-3}]$" if ymode == "kE" else r"$E_{\rm mag}(k)$"
+    if field == "hel_mag":
+        return r"$|\mathrm{d}h_M/\mathrm{d}\ln k| ~~ [E_*\,l_*^{-2}]$" if ymode == "kH" else r"$|H_{\rm mag}(k)|$"
+    return field
+
+
 # --- Slides export helpers ----------------------------------------------------
 def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300):
     """
@@ -472,6 +493,8 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     ax.loglog(t, np.abs(mu5), "-x", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(S5_over_G), "--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5}$" )
+    
+    ax.set_ylim(cfg.mu5_ymin, cfg.mu5_ymax)
 
     add_time_vlines(ax, compute_time_markers(ts, p))
     ax.set_xlabel("conformal time :~~ $t~~ [t_*]$",fontsize =12)
@@ -515,44 +538,59 @@ def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
     return tt, sm
 
 def plot_alltimes_spectrum(
-    pw, cfg: Config,k_scale, run: str, field: str,
+    pw, cfg: Config, k_scale: float, run: str, field: str, step: int = 1,
     k_markers: Optional[List[Tuple[float, str]]] = None,
-    slope_exponents: Optional[List[float]] = None 
+    slope_exponents: Optional[List[float]] = None
 ) -> None:
+    """Static overlay of spectra at all times, aligned with video settings."""
     if not hasattr(pw, field):
         print(f"[{run}] no field '{field}' in power.dat")
         return
 
+    # data
     k = np.asarray(pw.krms) * k_scale
     arr = np.asarray(getattr(pw, field))  # (nt, nk)
     t = np.asarray(pw.t) - cfg.t_offset
 
+    # colormap in log_t if requested – same as video’s legend
     tt_for_cmap, sm = _time_colormap(t, cfg.log_time_cmap, cfg.color_map)
 
+    # choose ymode to mirror animate_spectrum default
+    ymode = cfg.anim_y
+    if field == "hel_mag" and ymode == "kE":
+        ymode = "kH"
+
     fig, ax = plt.subplots(figsize=(6, 4))
-    for i in range(arr.shape[0]):
-        spec = np.nan_to_num(np.abs(arr[i]), nan=0.0, posinf=0.0, neginf=0.0)
-        #valid = (k > 0) & np.isfinite(k) & np.isfinite(spec)
-        #if valid.sum() < 2:
-        #    continue
-        ax.loglog(k, k*spec, lw=0.9, color=sm.to_rgba(tt_for_cmap[i]))
+    for i in range(0, arr.shape[0], 1):
+        y = _spectrum_y(arr[i], k, field, ymode)
+        # be robust to NaNs/negatives
+        valid = (k > 0) & np.isfinite(k) & np.isfinite(y) & (y > 0)
+        if valid.sum() < 2:
+            continue
+        ax.loglog(k[valid][::step], y[valid][::step], lw=0.9, color=sm.to_rgba(tt_for_cmap[i]))
+
     if k_markers:
         add_k_vlines(ax, k_markers)
 
-     # Optional: slope guides (anchor to last-time spectrum by default)
+    # optional slope guides: anchor to first valid spectrum
     if slope_exponents:
         ref = np.nan_to_num(np.abs(arr[0]), nan=0.0, posinf=0.0, neginf=0.0)
-        #add_slope_guides(ax, k, ref, exponents=slope_exponents,
-        #                 color="0.45")
-    ylabel = r"$\mathrm{d}\rho_B/\mathrm{d}\ln k  ~~ [E_* l_*^{-3}]$" if field == "mag" else (r"$|\mathrm{d}h_M/\mathrm{d}\ln k  ~~ [E_* l_*^{-2}]|$" if field == "hel_mag" else field)
-    ax.set_xlabel(r"$k~~[l_*^{-1}]$")
-    ax.set_ylabel(ylabel)
-    ax.set_title(f"{run}:  (all times)")
-    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
-    cbar.set_label(r"$\log_{10} (t/t_*)$" if cfg.log_time_cmap else r"$t$")
-    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, f"{field}_alltimes")[:-4])  # strip ".pdf"
+        # add_slope_guides(ax, k, ref, exponents=slope_exponents, color="0.45")
 
+    ax.set_xlabel(r"$k~~[l_*^{-1}]$")
+    ax.set_ylabel(_ylabel_for(field, ymode))
+    # <<< match video ranges exactly >>>
+    ax.set_xlim(cfg.anim_xmin * k_scale, cfg.anim_xmax * k_scale)
+    ax.set_ylim(cfg.anim_ymin, cfg.anim_ymax)
+
+    ax.set_title(f"{run}: {field} (all times)")
+    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label(r"$\log_{10}(t/t_*)$" if cfg.log_time_cmap else r"$t$")
+
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, f"{field}_alltimes")[:-4])
     plt.close(fig)
+
+
 
 def plot_final_spectra_with_bound(pw, cfg: Config, k_scale, run: str, k_markers: Optional[List[Tuple[float, str]]] = None) -> None:
     try:
@@ -1066,10 +1104,10 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
 
         # Spectra-style figures
         if pw is not None and cfg.make_mag_alltimes:
-            plot_alltimes_spectrum(pw, cfg,par1.wav1, name, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+            plot_alltimes_spectrum(pw, cfg,par1.wav1, name,step=100, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and hasattr(pw, "hel_mag") and cfg.make_hel_alltimes:
-            plot_alltimes_spectrum(pw, cfg, par1.wav1,name, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+            plot_alltimes_spectrum(pw, cfg, par1.wav1,name,step=100, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and cfg.make_helicity_fraction:
             plot_helicity_fraction_alltimes(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
