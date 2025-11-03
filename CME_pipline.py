@@ -50,10 +50,10 @@ class Config:
     make_anim_mag: bool = True
     make_anim_hel: bool = True
     make_anim_hel_frac: bool = True
-    anim_fps: int = 10
+    anim_fps: int = 4
     anim_stride: int = 1      # use every Nth time slice
     anim_y: str = "kE"        # "E" for Em(k), "kE" for k*Em(k), "kH" for k*|H(k)|
-    anim_xmin, anim_xmax = 10 ** (-1), 10 ** (3)
+    anim_xmin, anim_xmax = 10 ** (0), 10 ** (3)
     anim_ymin, anim_ymax = 10 ** (-29), 10 ** (5)
 
     # Safety
@@ -377,7 +377,6 @@ def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300)
     - PNG: high-DPI fallback if your Slides workspace rasterizes SVG
     - PDF: with your current cfg.use_tex setting (great for print)
     """
-    import matplotlib as mpl
 
     # Size to match a 16:9 slide; avoids internal rescaling in Slides
     fig.set_size_inches(*slide_inches, forward=True)
@@ -477,22 +476,20 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     # Add slope guide lines
     # Example: line with slope 1 (∝ t) and slope 2 (∝ t²)
-   # x0, x1 = t[1], t[10]    # choose points within your t range
-   # y0 = 1e2                 # adjust y0 for vertical placement
-   # y1 = 1e0
-   # fig, ax = plt.subplots(figsize=(6, 4))
-   # # slope 1: y ∝ t
-   # ax.plot([x0, x1], [y0, y0 * (x1/x0)], 'k--', lw=1)
-
-   # # slope 2: y ∝ t²
-   # ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
-
-   # # Optional: annotate them
-   # ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$", fontsize=9, va="bottom")
-   # ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$", fontsize=9, va="bottom")
-    ax.loglog(t, np.abs(mu5), "-x", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
+    x0, x1 = t[1], t[10]    # choose points within your t range
+    y0 = 1e2                 # adjust y0 for vertical placement
+    y1 = 1e0
+    fig, ax = plt.subplots(figsize=(6, 4))
+    # slope 1: y ∝ t
+    ax.plot([x0, x1], [y0, y0 * (x1/x0)], 'k--', lw=1)
+    # slope 2: y ∝ t²
+    ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
+    # Optional: annotate them
+    ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$", fontsize=9, va="bottom")
+    ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$", fontsize=9, va="bottom")
+    ax.loglog(t, np.abs(mu5), "-.", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(S5_over_G), "--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
-    ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5}$" )
+    ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5} ~~ [l_{*}^{-1}]$" )
     
     ax.set_ylim(cfg.mu5_ymin, cfg.mu5_ymax)
 
@@ -513,8 +510,8 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     lam = getattr(p,"lambda5")
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.loglog(t, np.abs(brms), "o-", label=r"$B_{\mathrm{rms}} ~~ [E_{*}^{1/2} l_*^{-3/2}]$")
-    ax.loglog(t, np.abs(hel), "x-",label=r"$|h_M| ~~ [E_*l_*^{-2}] $")
+    ax.loglog(t, np.abs(brms), "--", label=r"$B_{\mathrm{rms}} ~~ [E_{*}^{1/2} l_*^{-3/2}]$")
+    ax.loglog(t, np.abs(hel), "-.",label=r"$|h_M| ~~ [E_*l_*^{-2}] $")
     #ax.loglog(t, np.sqrt(lam) * np.abs(ts.abm), 'o-', label=r"$\sqrt{\lambda} \int d^3x A\cdot B ~~ [E_*^{1/2}l_*^{-3/2}]$") # 10**8 lmabda
     #ax.loglog(t, np.abs(ts.abm), 'o-', label=r"$h_M ~~ [E_*l_*^{-2}] $")
     add_time_vlines(ax,compute_time_markers(ts,p))
@@ -1104,10 +1101,10 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
 
         # Spectra-style figures
         if pw is not None and cfg.make_mag_alltimes:
-            plot_alltimes_spectrum(pw, cfg,par1.wav1, name,step=100, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+            plot_alltimes_spectrum(pw, cfg,par1.wav1, name,step=1, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and hasattr(pw, "hel_mag") and cfg.make_hel_alltimes:
-            plot_alltimes_spectrum(pw, cfg, par1.wav1,name,step=100, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+            plot_alltimes_spectrum(pw, cfg, par1.wav1,name,step=1, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
 
         if pw is not None and cfg.make_helicity_fraction:
             plot_helicity_fraction_alltimes(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
