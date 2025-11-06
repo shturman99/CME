@@ -242,6 +242,9 @@ def helicity_fraction(k: np.ndarray, Em: np.ndarray, Hm: np.ndarray, eps: float 
     valid = (k > 0) & np.isfinite(k) & np.isfinite(Em) & np.isfinite(Hm) & (np.abs(Em) > 0)
     kv = k[valid]
     frac = 0.5 * kv * Hm[valid] / (Em[valid] + eps)
+    if True:
+    #]    frac = 0.5 * k * Hm / (Em + eps) 
+        pass
     return kv, np.clip(frac, -1.0, 1.0)
 
 def get_param_val(p, name: str) -> float:
@@ -439,8 +442,8 @@ def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300)
         "savefig.transparent": False,
     }):
         fig.savefig(base_no_ext + ".pdf", bbox_inches="tight")
-#        fig.savefig(base_no_ext + ".svg")
-#        fig.savefig(base_no_ext + ".png", dpi=png_dpi)
+        fig.savefig(base_no_ext + ".svg")
+        fig.savefig(base_no_ext + ".png", dpi=png_dpi)
 
 
 
@@ -568,6 +571,8 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     ax.legend()
     export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "Brms")[:-4])  # strip ".pdf"
 
+
+    print(f"average helicity at last timestep: {np.mean(hel[-10])} ")
     plt.close(fig)
 
 #def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
@@ -853,11 +858,12 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
         Em = np.nan_to_num(EmA[i], nan=0.0, posinf=0.0, neginf=0.0)
         Hm = np.nan_to_num(HmA[i], nan=0.0, posinf=0.0, neginf=0.0)
         kv, hfrac = helicity_fraction(k, np.abs(Em), Hm, eps=cfg.eps)
+
         if kv.size < 3:
             continue
 
         j = i if i < len(tt_for_cmap) else (len(tt_for_cmap) - 1)
-        ax.semilogx(kv, hfrac, lw=0.8, color=sm.to_rgba(tt_for_cmap[j]))
+        ax.semilogx(kv, hfrac, lw=0.8)# color=sm.to_rgba(tt_for_cmap[j]))
 
 
 
@@ -871,7 +877,7 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
     #ax.set_title(f"{run}: helicity fraction (all times)")
     cbar = fig.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(r"$\log_{10} (t/t_*)$" if cfg.log_time_cmap else r"$t$")
-    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "helicity_fraction_alltimes")[:-4])  # strip ".pdf"
+    export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "helicity_fraction_alltimes_new")[:-4])  # strip ".pdf"
 
     plt.close(fig)
 
