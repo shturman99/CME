@@ -63,10 +63,12 @@ def setup_style(cfg: Config) -> None:
     os.makedirs(cfg.FIG_DIR, exist_ok=True)
     mpl.rcParams["figure.dpi"] = cfg.dpi
     mpl.rcParams["text.usetex"] = cfg.use_tex
-    mpl.rcParams["font.size"] = 12
-    mpl.rcParams["axes.titlesize"] = 13
-    mpl.rcParams["axes.labelsize"] = 12
-    mpl.rcParams["legend.fontsize"] = 10
+    mpl.rcParams["font.size"] = 16
+    mpl.rcParams["axes.titlesize"] = 16
+    mpl.rcParams["axes.labelsize"] = 16
+    mpl.rcParams["xtick.labelsize"] = 16        # x-axis tick numbers
+    mpl.rcParams["ytick.labelsize"] = 14        # y-axis tick numbers
+    mpl.rcParams["legend.fontsize"] = 12        # legend textVkkk
     mpl.rcParams["savefig.bbox"] = "tight"
 
 
@@ -271,8 +273,54 @@ def _filter_sims(sims, only_runs=None, like=None, regex=None):
     return sel
 
 
-def add_slope_guides(ax, k, Pk_ref, exponents=(3,),
-                          end_frac=0.8, color="0.4"):
+def add_slope_guides_from_right(ax, k, Pk_ref,fadg_x,fadg_y, exponents=(-3,),
+                                start_frac=0.6, color="0.4"):
+    """
+    Draw reference slope lines anchored at the RIGHT edge of k.
+
+    - Anchor y to the last finite P(k) at the largest k.
+    - start_frac in (0,1): e.g. 0.6 => use the last 40% of the valid k-grid.
+    """
+    k = np.asarray(k)
+    P = np.asarray(Pk_ref)
+
+    # Use only positive, finite data
+    valid = np.isfinite(k) & (k > 0) & np.isfinite(P) & (np.abs(P) > 0)
+    if valid.sum() < 3:
+        return
+
+    # Sort by k
+    order   = np.argsort(k[valid])
+    k_valid = k[valid][order]
+    P_valid = np.abs(P[valid][order])
+
+    # Right anchor
+    kN = k_valid[-1]
+    yN = P_valid[-1]
+
+    # Start index: smaller start_frac -> smaller index -> longer segment
+    i_start = int(np.floor(start_frac * (len(k_valid) - 1)))
+    i_start = max(0, min(len(k_valid) - 3, i_start))
+
+    k_start = k_valid[i_start]
+    kseg    = k_valid[i_start:]
+
+    if hasattr(exponents, "__iter__") and not isinstance(exponents, (str, bytes)):
+        n = list(exponents)[0]
+    else:
+        n = float(exponents)
+
+      
+    
+    yseg = yN * (kseg / kN) ** n
+    ax.loglog(fadg_x * kseg, fadg_y * yseg, ls="--", lw=1.0, color=color, alpha=0.9)
+    ax.text(fadg_x * kseg[-1], fadg_y * yseg[-1], rf"$k^{n}$", 
+            ha="left", va="bottom", color=color)
+
+
+
+def add_slope_guides(ax, k, Pk_ref, fadg_x,fadg_y,exponents=(3,),
+                          end_frac=0.4, color="0.4"):
     """
     Draw reference slope lines starting at the LEFT edge of k and ending
     at a chosen fraction of the k-domain (default: midpoint).
@@ -305,12 +353,11 @@ def add_slope_guides(ax, k, Pk_ref, exponents=(3,),
     # Use the existing k grid segment (clean for loglog)
     seg_mask = (k_valid >= k0) & (k_valid <= k_end)
     kseg = k_valid[seg_mask]
-
     for n in exponents:
         yseg = y0 * (kseg / k0) ** n
-        ax.loglog(kseg, yseg, ls="--", lw=1.0, color=color, alpha=0.9)
+        ax.loglog(kseg, fadg_y *yseg, ls="--", lw=1.0, color=color, alpha=0.9)
         # place label near the segment end
-        ax.text(kseg[-1], yseg[-1], rf"$k^{n}$", fontsize=9,
+        ax.text(kseg[-1], fadg_y * yseg[-1], rf"$k^{n}$", 
                 ha="left", va="bottom", color=color)
 
 def kcpi_series(ts, k_scale: float) -> Tuple[np.ndarray, np.ndarray]:
@@ -381,8 +428,6 @@ def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300)
     # Size to match a 16:9 slide; avoids internal rescaling in Slides
     fig.set_size_inches(*slide_inches, forward=True)
 
-    # Always make a PDF with current rcParams (often usetex=True for print)
-    fig.savefig(base_no_ext + ".pdf", bbox_inches="tight")
 
     # Re-render just for Slides assets with TeX off and vector-friendly fonts
     with mpl.rc_context({
@@ -393,8 +438,10 @@ def export_for_slides(fig, base_no_ext, slide_inches=(10.0, 5.625), png_dpi=300)
         "savefig.bbox": "tight",
         "savefig.transparent": False,
     }):
-        fig.savefig(base_no_ext + ".svg")
-        fig.savefig(base_no_ext + ".png", dpi=png_dpi)
+        fig.savefig(base_no_ext + ".pdf", bbox_inches="tight")
+#        fig.savefig(base_no_ext + ".svg")
+#        fig.savefig(base_no_ext + ".png", dpi=png_dpi)
+
 
 
 def export_video_mp4(anim, out_mp4, fps=24, width_px=1920, height_px=1080, bitrate=8000):
@@ -423,13 +470,13 @@ def add_time_vlines(ax, markers):
             continue
         if x < xmin:
             ax.annotate(lab + " ←", xy=(xmin, 0.85), xycoords=ax.get_xaxis_transform(),
-                        ha="left", va="top", fontsize=9, clip_on=True, annotation_clip=True)
+                        ha="left", va="top",  clip_on=True, annotation_clip=True)
         elif x > xmax:
             ax.annotate("→ " + lab, xy=(xmax, 0.85), xycoords=ax.get_xaxis_transform(),
-                        ha="right", va="top", fontsize=9, clip_on=True, annotation_clip=True)
+                        ha="right", va="top",  clip_on=True, annotation_clip=True)
         else:
             ax.axvline(x, color="gray", ls="--", lw=0.8, clip_on=True)
-            ax.text(x, 0.85, lab, rotation=90, va="top", fontsize=9,
+            ax.text(x, 0.85, lab, rotation=90, va="top", 
                     transform=ax.get_xaxis_transform(), clip_on=True)
 
 def add_k_vlines(ax, markers):
@@ -441,13 +488,13 @@ def add_k_vlines(ax, markers):
             continue
         if x < xmin:
             ax.annotate(lab + " ←", xy=(xmin, 0.85), xycoords=ax.get_xaxis_transform(),
-                        ha="left", va="top", fontsize=9, clip_on=True, annotation_clip=True)
+                        ha="left", va="top",  clip_on=True, annotation_clip=True)
         elif x > xmax:
             ax.annotate("→ " + lab, xy=(xmax, 0.85), xycoords=ax.get_xaxis_transform(),
-                        ha="right", va="top", fontsize=9, clip_on=True, annotation_clip=True)
+                        ha="right", va="top",  clip_on=True, annotation_clip=True)
         else:
             ax.axvline(x, color="gray", ls="--", lw=0.8, clip_on=True)
-            ax.text(x, 0.85, lab, rotation=90, va="top", fontsize=9,
+            ax.text(x, 0.85, lab, rotation=90, va="top", 
                     transform=ax.get_xaxis_transform(), clip_on=True)
 
 def run_fig_dir(fig_root: str, run: str) -> str:
@@ -476,7 +523,7 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     # Add slope guide lines
     # Example: line with slope 1 (∝ t) and slope 2 (∝ t²)
-    x0, x1 = t[1], t[10]    # choose points within your t range
+    x0, x1 = t[1], t[5]    # choose points within your t range
     y0 = 1e2                 # adjust y0 for vertical placement
     y1 = 1e0
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -485,8 +532,8 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     # slope 2: y ∝ t²
     ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
     # Optional: annotate them
-    ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$", fontsize=9, va="bottom")
-    ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$", fontsize=9, va="bottom")
+    ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$",  va="bottom")
+    ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$",  va="bottom")
     ax.loglog(t, np.abs(mu5), "-.", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(S5_over_G), "--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
     ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5} ~~ [l_{*}^{-1}]$" )
@@ -494,9 +541,9 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     ax.set_ylim(cfg.mu5_ymin, cfg.mu5_ymax)
 
     add_time_vlines(ax, compute_time_markers(ts, p))
-    ax.set_xlabel("conformal time :~~ $t~~ [t_*]$",fontsize =12)
-    ax.set_ylabel("chiral chemical potential",fontsize =12)
-    ax.set_title(run)
+    ax.set_xlabel("conformal time :~~ $t~~ [t_*]$")  #,fontsize =12)
+    ax.set_ylabel("chiral chemical potential") #  ,fontsize =12)
+    #ax.set_title(run)
     ax.legend()
     export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "ts")[:-4])  # strip ".pdf"
 
@@ -515,23 +562,107 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     #ax.loglog(t, np.sqrt(lam) * np.abs(ts.abm), 'o-', label=r"$\sqrt{\lambda} \int d^3x A\cdot B ~~ [E_*^{1/2}l_*^{-3/2}]$") # 10**8 lmabda
     #ax.loglog(t, np.abs(ts.abm), 'o-', label=r"$h_M ~~ [E_*l_*^{-2}] $")
     add_time_vlines(ax,compute_time_markers(ts,p))
-    ax.set_xlabel(r"conformal time :~~ $t~~ [t_*]$",fontsize =12)
+    ax.set_xlabel(r"conformal time :~~ $t~~ [t_*]$")#,fontsize =12)
     ax.set_ylabel(r"magnetic field")
-    ax.set_title(run)
+    #ax.set_title(run)
     ax.legend()
     export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "Brms")[:-4])  # strip ".pdf"
 
     plt.close(fig)
 
-def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
-    tt = np.copy(t)
-    # ensure strictly positive when log-scaling
-    if log_t:
-        min_pos = np.nanmin(tt[tt > 0]) if (tt > 0).any() else 1.0
-        tt = np.where(tt > 0, tt, min_pos)
-        tt = np.log10(tt)
-    norm = mpl.colors.Normalize(vmin=np.nanmin(tt), vmax=np.nanmax(tt)) # type: ignore
-    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap) # type: ignore
+#def _time_colormap(t: np.ndarray, log_t: bool, cmap: str):
+#    tt = np.copy(t)
+#    # ensure strictly positive when log-scaling
+#    if log_t:
+#        min_pos = np.nanmin(tt[tt > 0]) if (tt > 0).any() else 1.0
+#        tt = np.where(tt > 0, tt, min_pos)
+#        tt = np.log10(tt)
+#    norm = mpl.colors.Normalize(vmin=np.nanmin(tt), vmax=np.nanmax(tt)) # type: ignore
+#    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap) # type: ignore
+#    return tt, sm
+
+#def _time_colormap(t, log_time_cmap: bool, cmap_name: str):
+#    """
+#    Build a ScalarMappable for coloring curves by time.
+#
+#    Returns
+#    -------
+#    tt_for_cmap : np.ndarray
+#        Per-snapshot "time value" to feed into sm.to_rgba(...).
+#        **Same shape as t**; we never drop entries.
+#    sm : ScalarMappable
+#        Colormap object; call sm.to_rgba(tt_for_cmap[i]) to get a color.
+#    """
+#    t = np.asarray(t, dtype=float)
+#
+#    if log_time_cmap:
+#        # For log10, we cannot use non-positive times.
+#        # Clamp them to the smallest positive time instead of dropping them.
+#        pos = t > 0
+#        if pos.any():
+#            t_clamp = t.copy()
+#            t_clamp[~pos] = t_clamp[pos].min()
+#            tt = np.log10(t_clamp)
+#        else:
+#            # If everything is non-positive, fall back to linear
+#            tt = t
+#    else:
+#        tt = t
+#
+#    # Protect against all-NaN / non-finite
+#    vmin = np.nanmin(tt)
+#    vmax = np.nanmax(tt)
+#    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+#        vmin, vmax = 0.0, 1.0
+#
+#    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+#    sm = mpl.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap_name))
+#
+#    return tt, sm
+#
+
+def _time_colormap(t, log_time_cmap: bool, cmap_name: str):
+    """
+    Build a ScalarMappable for coloring curves by time.
+
+    Returns
+    -------
+    tt_for_cmap : np.ndarray, shape (nt,)
+        Per-snapshot time value to feed into sm.to_rgba(...).
+    sm : ScalarMappable
+        Colormap object; call sm.to_rgba(tt_for_cmap[i]) to get a color.
+    """
+    # Flatten to 1D no matter what pw.t looks like
+    t = np.asarray(t, dtype=float).reshape(-1)
+
+    if log_time_cmap:
+        # For log10, we cannot use non-positive times.
+        pos = t > 0
+        if pos.any():
+            t_clamp = t.copy()
+            t_clamp[~pos] = t_clamp[pos].min()
+            tt = np.log10(t_clamp)
+        else:
+            # If everything is non-positive, fall back to linear
+            tt = t
+    else:
+        tt = t
+
+    # Protect against all-NaN / non-finite
+    vmin = np.nanmin(tt)
+    vmax = np.nanmax(tt)
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+        vmin, vmax = 0.0, 1.0
+
+    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+    # cmap_name should normally be a string; if it's already a Colormap, just use it
+    if isinstance(cmap_name, mpl.colors.Colormap):
+        cmap = cmap_name
+    else:
+        cmap = plt.get_cmap(cmap_name)
+
+    sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
     return tt, sm
 
 def plot_alltimes_spectrum(
@@ -549,8 +680,10 @@ def plot_alltimes_spectrum(
     arr = np.asarray(getattr(pw, field))  # (nt, nk)
     t = np.asarray(pw.t) - cfg.t_offset
 
+
     # colormap in log_t if requested – same as video’s legend
     tt_for_cmap, sm = _time_colormap(t, cfg.log_time_cmap, cfg.color_map)
+    tt_for_cmap = np.asarray(tt_for_cmap).reshape(-1)
 
     # choose ymode to mirror animate_spectrum default
     ymode = cfg.anim_y
@@ -558,21 +691,93 @@ def plot_alltimes_spectrum(
         ymode = "kH"
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    for i in range(0, arr.shape[0], 1):
+
+    # --- robust against any mismatch in lengths ---
+    n_spec  = arr.shape[0]
+    n_color = tt_for_cmap.shape[0]
+    n       = min(n_spec, n_color)
+
+    for i in range(n):
         y = _spectrum_y(arr[i], k, field, ymode)
-        # be robust to NaNs/negatives
         valid = (k > 0) & np.isfinite(k) & np.isfinite(y) & (y > 0)
         if valid.sum() < 2:
             continue
-        ax.loglog(k[valid][::step], y[valid][::step], lw=0.9, color=sm.to_rgba(tt_for_cmap[i]))
+        ax.loglog(
+            k[valid][::step],
+            y[valid][::step],
+            lw=0.9,
+            color=sm.to_rgba(tt_for_cmap[i]),
+        )
 
+    
     if k_markers:
         add_k_vlines(ax, k_markers)
 
-    # optional slope guides: anchor to first valid spectrum
-    if slope_exponents:
-        ref = np.nan_to_num(np.abs(arr[0]), nan=0.0, posinf=0.0, neginf=0.0)
-        # add_slope_guides(ax, k, ref, exponents=slope_exponents, color="0.45")
+    if field == "hel_mag":
+        if slope_exponents is None:
+            first_spec = np.nan_to_num(np.abs(arr[0]),
+                                    nan=0.0, posinf=0.0, neginf=0.0)
+            add_slope_guides(
+                ax, k, first_spec,
+                fadg_x=1,
+                fadg_y=10 ** 7,
+                exponents=(5,),   
+                end_frac=0.01,    # only the low-k quarter of the domain
+                color="0.25",
+            )
+
+            last_spec = np.nan_to_num(np.abs(arr[-1]),
+                                    nan=0.0, posinf=0.0, neginf=0.0)
+            add_slope_guides(
+                ax, k, last_spec,
+                fadg_x=1,
+                fadg_y=10 **3,
+                end_frac=0.01,
+                exponents=(0,),   
+                color="0.35",
+            )
+
+            add_slope_guides_from_right(
+                ax, k, last_spec,
+                fadg_x=2*10**(-1),
+                fadg_y=10 ** (29),
+                exponents=(-3,),   
+                start_frac=0.6,      
+                color="0.35",
+            )
+    elif field == "mag":
+        if slope_exponents is None:
+            first_spec = np.nan_to_num(np.abs(arr[0]),
+                                    nan=0.0, posinf=0.0, neginf=0.0)
+            add_slope_guides(
+                ax, k, first_spec,
+                fadg_x=1,
+                fadg_y=10 ** 7,
+                exponents=(5,),   
+                end_frac=0.01,    # only the low-k quarter of the domain
+                color="0.25",
+            )
+
+            last_spec = np.nan_to_num(np.abs(arr[-1]),
+                                    nan=0.0, posinf=0.0, neginf=0.0)
+            add_slope_guides(
+                ax, k, last_spec,
+                fadg_x=1,
+                fadg_y=10 **3,
+                end_frac=0.01,
+                exponents=(1,),   
+                color="0.35",
+            )
+
+            add_slope_guides_from_right(
+                ax, k, last_spec,
+                fadg_x=2*10**(-1),
+                fadg_y=10 ** (26),
+                exponents=(-2,),   
+                start_frac=0.6,      
+                color="0.35",
+            )
+
 
     ax.set_xlabel(r"$k~~[l_*^{-1}]$")
     ax.set_ylabel(_ylabel_for(field, ymode))
@@ -580,7 +785,7 @@ def plot_alltimes_spectrum(
     ax.set_xlim(cfg.anim_xmin * k_scale, cfg.anim_xmax * k_scale)
     ax.set_ylim(cfg.anim_ymin, cfg.anim_ymax)
 
-    ax.set_title(f"{run}: {field} (all times)")
+#    ax.set_title(f"{run}: {field} (all times)")
     cbar = fig.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(r"$\log_{10}(t/t_*)$" if cfg.log_time_cmap else r"$t$")
 
@@ -611,7 +816,7 @@ def plot_final_spectra_with_bound(pw, cfg: Config, k_scale, run: str, k_markers:
 
         ax.set_xlabel(r"$k~~[l_*^{-1}]$")
         ax.set_ylabel("spectral density")
-        ax.set_title(f"{run}: final spectra")
+#        ax.set_title(f"{run}: final spectra")
         ax.legend()
         export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "spectra_final")[:-4])  # strip ".pdf"
 
@@ -625,21 +830,36 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
         print(f"[{run}] no hel_mag in power.dat")
         return
 
-    k = np.asarray(pw.krms) * k_scale
+
+    # --- data ---
+    k   = np.asarray(pw.krms) * k_scale
     EmA = np.asarray(pw.mag)      # (nt, nk)
     HmA = np.asarray(pw.hel_mag)  # (nt, nk)
-    t = np.asarray(pw.t) - cfg.t_offset
+    t   = np.asarray(pw.t) - cfg.t_offset
 
+    # --- colormap (flatten + robust) ---
     tt_for_cmap, sm = _time_colormap(t, cfg.log_time_cmap, cfg.color_map)
+    tt_for_cmap = np.asarray(tt_for_cmap).reshape(-1)
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    for i in range(EmA.shape[0]):
+
+    n_spec  = EmA.shape[0]
+    n_color = tt_for_cmap.shape[0]
+    print(f"[{run}] helicity_fraction_alltimes: EmA.shape[0]={EmA.shape[0]}, len(tt_for_cmap)={len(tt_for_cmap)}")
+
+    for i in range(n_spec):
+        # clamp color index if there are fewer colors than spectra
+
         Em = np.nan_to_num(EmA[i], nan=0.0, posinf=0.0, neginf=0.0)
         Hm = np.nan_to_num(HmA[i], nan=0.0, posinf=0.0, neginf=0.0)
         kv, hfrac = helicity_fraction(k, np.abs(Em), Hm, eps=cfg.eps)
         if kv.size < 3:
             continue
-        ax.semilogx(kv, hfrac, lw=0.8, color=sm.to_rgba(tt_for_cmap[i]))
+
+        j = i if i < len(tt_for_cmap) else (len(tt_for_cmap) - 1)
+        ax.semilogx(kv, hfrac, lw=0.8, color=sm.to_rgba(tt_for_cmap[j]))
+
+
 
     if k_markers:
         add_k_vlines(ax, k_markers)
@@ -648,7 +868,7 @@ def plot_helicity_fraction_alltimes(pw, cfg: Config, k_scale, run: str, k_marker
     ax.axhline(-1.0, ls="--", lw=0.8, c="gray")
     ax.set_xlabel(r"$k~~[l_*^{-1}]$")
     ax.set_ylabel(r"helicity fraction $kh_M/2\rho_B$")
-    ax.set_title(f"{run}: helicity fraction (all times)")
+    #ax.set_title(f"{run}: helicity fraction (all times)")
     cbar = fig.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(r"$\log_{10} (t/t_*)$" if cfg.log_time_cmap else r"$t$")
     export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "helicity_fraction_alltimes")[:-4])  # strip ".pdf"
@@ -730,7 +950,7 @@ def animate_spectrum(
     line, = ax.loglog([], [], lw=1.5, color="C0",
                       marker='x', markersize=4,
                       markerfacecolor='none', markeredgewidth=0.9)
-    title = ax.set_title(f"{run}: {field} spectrum")
+    title = ax.set_title(f"{field} spectrum")
 
     # Fixed vlines
     fixed_artists = []
@@ -739,7 +959,7 @@ def animate_spectrum(
             fixed_artists += [
                 ax.axvline(x, color="0.65", ls="--", lw=0.8),
                 ax.text(x, 0.9, lab, rotation=90, va="top",
-                        transform=ax.get_xaxis_transform(), fontsize=8)
+                        transform=ax.get_xaxis_transform(), )
             ]
 
     # Moving vlines
@@ -754,11 +974,11 @@ def animate_spectrum(
 
     txt_kc = ax.text(np.nan, 0.93, r"$k_{\rm CPI}$",
                      transform=data_x_axes_y + offset,
-                     fontsize=9, color="C3", ha="left", va="bottom",
+                      color="C3", ha="left", va="bottom",
                      clip_on=True, bbox=bbox_kw)
     txt_kp = ax.text(np.nan, 0.93, r"$k_{\rm peak}$",
                      transform=data_x_axes_y + offset,
-                     fontsize=9, color="C2", ha="left", va="bottom",
+                      color="C2", ha="left", va="bottom",
                      clip_on=True, bbox=bbox_kw)
 
     ax.set_xlabel(r"$k\ [l_*^{-1}]$")
@@ -792,7 +1012,7 @@ def animate_spectrum(
         v_kc.set_xdata([np.nan, np.nan]); v_kp.set_xdata([np.nan, np.nan])
         txt_kc.set_position((np.nan, 0.93)); txt_kc.set_visible(False)
         txt_kp.set_position((np.nan, 0.93)); txt_kp.set_visible(False)
-        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+        return (line, v_kc, v_kp, txt_kc, txt_kp,  *fixed_artists)
 
     def update(frame_idx):
         i = it[frame_idx]
@@ -825,8 +1045,8 @@ def animate_spectrum(
             v_kp.set_xdata([np.nan, np.nan])
             txt_kp.set_visible(False)
 
-        title.set_text(f"{run}: {field}  (t = {t_now:.3g})")
-        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+        title.set_text(f"{field}  (t = {t_now:.3g})")
+        return (line, v_kc, v_kp, txt_kc, txt_kp,  *fixed_artists)
 
     anim = FuncAnimation(fig, update, init_func=init, frames=len(it),
                          interval=1000/cfg.anim_fps, blit=False)
@@ -933,7 +1153,7 @@ def animate_helicity_fraction(
     # show discrete k points with markers
     line, = ax.semilogx([], [], lw=1.2, color="C0", marker="o",
                         markersize=3.0, markerfacecolor="none", markeredgewidth=0.8)
-    title = ax.set_title(f"{run}: helicity fraction")
+    title = ax.set_title(f" helicity fraction")
 
     # fixed vlines
     fixed_artists = []
@@ -942,7 +1162,7 @@ def animate_helicity_fraction(
             fixed_artists += [
                 ax.axvline(x, color="0.65", ls="--", lw=0.8),
                 ax.text(x, 0.92, lab, rotation=90, va="top",
-                        transform=ax.get_xaxis_transform(), fontsize=8)
+                        transform=ax.get_xaxis_transform(), )
             ]
 
     # moving vlines (no time interpolation)
@@ -956,11 +1176,11 @@ def animate_helicity_fraction(
 
     txt_kc = ax.text(np.nan, 0.93, r"$k_{\rm CPI}$",
                      transform=data_x_axes_y + offset,
-                     fontsize=9, color="C3", ha="left", va="bottom",
+                      color="C3", ha="left", va="bottom",
                      clip_on=True, bbox=bbox_kw)
     txt_kp = ax.text(np.nan, 0.93, r"$k_{\rm peak}$",
                      transform=data_x_axes_y + offset,
-                     fontsize=9, color="C2", ha="left", va="bottom",
+                      color="C2", ha="left", va="bottom",
                      clip_on=True, bbox=bbox_kw)
 
     ## tiny tick marks at every available k (in axes coords near the bottom)
@@ -993,7 +1213,7 @@ def animate_helicity_fraction(
         v_kc.set_xdata([np.nan, np.nan]); v_kp.set_xdata([np.nan, np.nan])
         txt_kc.set_position((np.nan, 0.93)); txt_kc.set_visible(False)
         txt_kp.set_position((np.nan, 0.93)); txt_kp.set_visible(False)
-        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+        return (line, v_kc, v_kp, txt_kc, txt_kp,  *fixed_artists)
 
     def update(frame_idx):
         i = it[frame_idx]
@@ -1039,8 +1259,8 @@ def animate_helicity_fraction(
             v_kp.set_xdata([np.nan, np.nan])
             txt_kp.set_visible(False)
 
-        title.set_text(f"{run}: helicity fraction  (t = {t_pw[i]:.3g})")
-        return (line, v_kc, v_kp, txt_kc, txt_kp, title, *fixed_artists)
+        title.set_text(f" helicity fraction  (t = {t_pw[i]:.3g})")
+        return (line, v_kc, v_kp, txt_kc, txt_kp,  *fixed_artists)
 
     anim = FuncAnimation(fig, update, init_func=init, frames=len(it),
                          interval=1000/cfg.anim_fps, blit=False)
@@ -1101,16 +1321,19 @@ def run_pipeline(cfg: Config, sims_override=None) -> None:
 
         # Spectra-style figures
         if pw is not None and cfg.make_mag_alltimes:
-            plot_alltimes_spectrum(pw, cfg,par1.wav1, name,step=1, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+           # plot_alltimes_spectrum(pw, cfg,par1.wav1, name,step=1, field="mag", k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+           plot_alltimes_spectrum( pw, cfg, par1.wav1, name, field="mag", step=1, k_markers=k_mks, slope_exponents=None)  # type: ignore
+
 
         if pw is not None and hasattr(pw, "hel_mag") and cfg.make_hel_alltimes:
-            plot_alltimes_spectrum(pw, cfg, par1.wav1,name,step=1, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+          #  plot_alltimes_spectrum(pw, cfg, par1.wav1,name,step=1, field="hel_mag",k_markers=k_mks,slope_exponents=[2,3,4]) # type: ignore
+            plot_alltimes_spectrum( pw, cfg, par1.wav1, name, field="hel_mag", step=1, k_markers=k_mks, slope_exponents=None)  # type: ignore
 
         if pw is not None and cfg.make_helicity_fraction:
             plot_helicity_fraction_alltimes(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
 
-        if pw is not None and cfg.make_final_spectra:
-            plot_final_spectra_with_bound(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
+#        if pw is not None and cfg.make_final_spectra:
+#            plot_final_spectra_with_bound(pw, cfg,par1.wav1, name, k_markers=k_mks) # type: ignore
 
         # Summary metrics: final B_rms, final H_int, final B^2 ξ_M
         try:
