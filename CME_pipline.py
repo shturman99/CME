@@ -143,8 +143,8 @@ def read_everything(sims: List[pc.sim.simulation]): # type: ignore
 def compute_time_markers(ts, p) -> List[Tuple[float, str]]:
     """Return vertical time markers: start, 1/Gamma5, t_phi, finish."""
     t = np.asarray(ts.t)
-    t_start = t[0] if t.size else np.nan
-    t_finish = t[-1] if t.size else np.nan
+    #t_start = t[0] if t.size else np.nan
+    #t_finish = t[-1] if t.size else np.nan
 
     tg = float("nan")
     if hasattr(p, "gammaf5") and p.gammaf5 != 0:
@@ -157,11 +157,12 @@ def compute_time_markers(ts, p) -> List[Tuple[float, str]]:
     eta = getattr(p,"eta",float("nan"))
     tc = 2 ** (2/3) * tp ** (2/3) * (tg) ** (-2/3) * S ** (-2/3) * eta ** (-1/3)
     out = []
-    if np.isfinite(t_start):  out.append((t_start, r"$t_i$"))
+    
+    #if np.isfinite(t_start):  out.append((t_start, r"$t_i$"))
     if np.isfinite(tg):      out.append((tg, r"$\Gamma_5^{-1}$"))
     if np.isfinite(tp):      out.append((tp, r"$t_\phi$"))
-    if np.isfinite(t_finish): out.append((t_finish, r"$t_f$"))
-    if np.isfinite(tc): out.append((tc, r"$t_c$"))
+    #if np.isfinite(t_finish): out.append((t_finish, r"$t_f$"))
+    if np.isfinite(tc): out.append((tc, r"$t_{\rm cross}$"))
     return out
 
 def compute_k_markers(p) -> List[Tuple[float, str]]:
@@ -479,7 +480,7 @@ def add_time_vlines(ax, markers):
                         ha="right", va="top",  clip_on=True, annotation_clip=True)
         else:
             ax.axvline(x, color="gray", ls="--", lw=0.8, clip_on=True)
-            ax.text(x, 0.85, lab, rotation=90, va="top", 
+            ax.text(x, 0.3, lab, rotation=90, va="top", 
                     transform=ax.get_xaxis_transform(), clip_on=True)
 
 def add_k_vlines(ax, markers):
@@ -497,7 +498,7 @@ def add_k_vlines(ax, markers):
                         ha="right", va="top",  clip_on=True, annotation_clip=True)
         else:
             ax.axvline(x, color="gray", ls="--", lw=0.8, clip_on=True)
-            ax.text(x, 0.85, lab, rotation=90, va="top", 
+            ax.text(x, 0.2, lab, rotation=90, va="top", 
                     transform=ax.get_xaxis_transform(), clip_on=True)
 
 def run_fig_dir(fig_root: str, run: str) -> str:
@@ -535,12 +536,12 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     # slope 2: y ∝ t²
     ax.plot([x0, x1], [y1, y1 * (x1/x0)**2], 'k-.', lw=1)
     # Optional: annotate them
-    ax.text(x1*1.1, y0 * (x1/x0), r"$\propto t$",  va="bottom")
-    ax.text(x1*1.1, y1 * (x1/x0)**2, r"$\propto t^2$",  va="bottom")
-    ax.loglog(t, np.abs(mu5), "-.", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
-    ax.loglog(t, np.abs(S5_over_G), "--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
-    ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, label = r"$\eta\lambda J\cdot B/\Gamma_{5} ~~ [l_{*}^{-1}]$" )
-    
+    ax.text(x0*0.8, y0 * 1.4, r"$\propto t$",  va="bottom")
+    ax.text(x0*0.8, y1 * 1.4, r"$\propto t^2$",  va="bottom")
+    ax.loglog(t, np.abs(mu5), color="Black", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
+    ax.loglog(t, np.abs(S5_over_G), color="Green", linestyle="--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
+    ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, color="Cyan", linestyle="-.", label=r"$\eta\lambda J\cdot B/\Gamma_{5} ~~ [l_{*}^{-1}]$")
+
     ax.set_ylim(cfg.mu5_ymin, cfg.mu5_ymax)
 
     add_time_vlines(ax, compute_time_markers(ts, p))
@@ -757,7 +758,7 @@ def plot_alltimes_spectrum(
             add_slope_guides(
                 ax, k, first_spec,
                 fadg_x=1,
-                fadg_y=10 ** 7,
+                fadg_y=10 ** 11,
                 exponents=(5,),   
                 end_frac=0.01,    # only the low-k quarter of the domain
                 color="0.25",
