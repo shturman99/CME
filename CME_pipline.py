@@ -315,10 +315,10 @@ def add_slope_guides_from_right(ax, k, Pk_ref,fadg_x,fadg_y, exponents=(-3,),
         n = float(exponents)
 
       
-    
     yseg = yN * (kseg / kN) ** n
     ax.loglog(fadg_x * kseg, fadg_y * yseg, ls="--", lw=1.0, color=color, alpha=0.9)
-    ax.text(fadg_x * kseg[-1], fadg_y * yseg[-1], rf"$k^{n}$", 
+   
+    ax.text(fadg_x * kseg[-1], fadg_y * yseg[-1], rf"$k^{{{n}}}$", 
             ha="left", va="bottom", color=color)
 
 
@@ -538,9 +538,9 @@ def plot_ts_mu5_S5(ts, p, cfg: Config, run: str) -> None:
     # Optional: annotate them
     ax.text(x0*0.8, y0 * 1.4, r"$\propto t$",  va="bottom")
     ax.text(x0*0.8, y1 * 1.4, r"$\propto t^2$",  va="bottom")
-    ax.loglog(t, np.abs(mu5), color="Black", label=r"$\tilde{\mu}_{5} ~~ [l_{*}^{-1}]$")
-    ax.loglog(t, np.abs(S5_over_G), color="Green", linestyle="--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
-    ax.loglog(t, np.abs(lam * eta * (-JBm))/gamma, color="Cyan", linestyle="-.", label=r"$\eta\lambda J\cdot B/\Gamma_{5} ~~ [l_{*}^{-1}]$")
+    ax.loglog(t[1:], np.abs(mu5)[1:], color="Black", label=r"$\langle\tilde{\mu}_{5}\rangle ~~ [l_{*}^{-1}]$")
+    ax.loglog(t[1:], np.abs(S5_over_G)[1:], color="Green", linestyle="--", label=r"$\tilde{S}_5 / \Gamma_{5} ~~ [l_{*}^{-1}]$")
+    ax.loglog(t[1:], np.abs(lam * eta * (-JBm))[1:]/gamma, color="Cyan", linestyle="-.", label=r"$\eta\lambda\langle \mathbf{J}\cdot \mathbf{B}\rangle/\Gamma_{5} ~~ [l_{*}^{-1}]$")
 
     ax.set_ylim(cfg.mu5_ymin, cfg.mu5_ymax)
 
@@ -558,16 +558,18 @@ def plot_ts_brms_and_hel(ts,p, cfg: Config, run: str) -> None:
     t = np.asarray(ts.t) - cfg.t_offset
     brms = np.asarray(ts.brms)
     hel = np.asarray(ts.abm)
+    urms = np.asarray(ts.urms)
     lam = getattr(p,"lambda5")
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.loglog(t, np.abs(brms), "--", label=r"$B_{\mathrm{rms}} ~~ [E_{*}^{1/2} l_*^{-3/2}]$")
-    ax.loglog(t, np.abs(hel), "-.",label=r"$|h_M| ~~ [E_*l_*^{-2}] $")
+    ax.loglog(t[1:], np.abs(brms)[1:], "--", label=r"$B_{\mathrm{rms}} ~~ [E_{*}^{1/2} l_*^{-3/2}]$")    
+    ax.loglog(t[1:], np.abs(hel)[1:], "-.",label=r"$|h_M| ~~ [E_*l_*^{-2}] $")
+    ax.loglog(t[1:], np.abs(urms)[1:], "--", label=r"$u_{\mathrm{rms}} ~~ [l_*t_*^{-1}]$")
     #ax.loglog(t, np.sqrt(lam) * np.abs(ts.abm), 'o-', label=r"$\sqrt{\lambda} \int d^3x A\cdot B ~~ [E_*^{1/2}l_*^{-3/2}]$") # 10**8 lmabda
     #ax.loglog(t, np.abs(ts.abm), 'o-', label=r"$h_M ~~ [E_*l_*^{-2}] $")
     add_time_vlines(ax,compute_time_markers(ts,p))
     ax.set_xlabel(r"conformal time :~~ $t~~ [t_*]$")#,fontsize =12)
-    ax.set_ylabel(r"magnetic field")
+#    ax.set_ylabel(r"magnetic field")
     #ax.set_title(run)
     ax.legend()
     export_for_slides(fig, fig_path(cfg.FIG_DIR, run, "Brms")[:-4])  # strip ".pdf"
@@ -714,7 +716,8 @@ def plot_alltimes_spectrum(
             lw=0.9,
             color=sm.to_rgba(tt_for_cmap[i]),
         )
-
+    print(f"k {k}")
+    print(f"y {y}")
     
     if k_markers:
         add_k_vlines(ax, k_markers)
